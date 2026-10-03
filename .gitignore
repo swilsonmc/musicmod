@@ -11,6 +11,12 @@
 *.onnx
 *.ckpt
 
+# Fully regenerable by re-running the shootout, and its manifest.json
+# holds this machine's absolute paths anyway - never meaningful to commit.
+stem-shootout/data/songs/*/estimates/
+stem-shootout/data/songs/*/reference_bucketed/
+stem-shootout/data/songs/*/reference_aligned/
+
 # Python
 __pycache__/
 *.pyc

@@ -112,12 +112,27 @@ ground rules above.
 5. Full NLE timeline (cut/copy/ripple-delete/time-shift/reverse).
 6. Voice import/conversion module — last, lowest priority, opt-in.
 
-## Current state: Phase 1 (stem-shootout)
+## Current state: Phase 1 (stem-shootout) — DONE, decision made
 
-Location: `stem-shootout/` in this repo. **The harness is built, and real
-test audio for 3 songs is staged. `audio-separator` itself (the heavy
-dependency — pulls torch) has not actually been installed/run yet — that's
-the next step, not done as part of acquiring the material.**
+Location: `stem-shootout/` in this repo. **The harness is built, real test
+audio for 3 songs is staged, `audio-separator` is installed, and the full
+shootout has been run end to end.** Results and full writeup are in
+`stem-shootout/README.md` — the short version:
+
+- **For vocal isolation, use a dedicated vocal/instrumental model**
+  (tested: `melband_roformer_instvox_duality_v2.ckpt`) — it beat Demucs's
+  bundled vocals output on all 3 songs, by a lot (+5.25dB) on the one with
+  real lead+backing-vocal harmony.
+- **For the full 4-stem split** (needed for per-instrument editing),
+  Demucs is still the pick — `htdemucs_ft` as default, `htdemucs` as a
+  faster fallback with a small, inconsistent accuracy cost.
+- **Bass and "other" are the weak link everywhere**, worse on denser/more
+  produced mixes — plan phase 3+'s instrument-reassignment UI around that
+  reality (e.g. don't promise clean guitar/synth re-rendering without
+  caveats).
+
+This phase's engineering produced reusable infrastructure, not just one
+result — worth knowing about going into later phases:
 
 What exists:
 - `scripts/common.py` — shared audio I/O + FFT-based cross-correlation
@@ -189,19 +204,25 @@ it means actually listening to and classifying each track, not just
 reading filenames) is in `stem-shootout/README.md` — don't duplicate that
 here, read it there.
 
-### Next steps (pick up here, locally or in a further cloud session)
+### Next steps — phase 2
 
-1. `pip install -r stem-shootout/requirements.txt` (pulls torch — this is
-   the heavy step not yet done), then `audio-separator --list_models` to
-   get current real model identifiers — the ones in each song's
-   `config.json` are placeholders, don't trust them blindly.
-2. Update each song's `config.json` `"models"` list from that real list.
-3. `python scripts/run_shootout.py --config ../data/songs/discipline/config.json`
-   (and repeat for `nude`, `a_light_that_never_comes`) — review
-   `results.md` per song, sanity-check the printed alignment offset.
-4. Compare results across all 3 songs — a model that wins on Discipline's
-   dense industrial mix but falls apart on Nude's sparse falsetto (or
-   can't separate Lead_Vocals from BG_Vocals on A Light That Never Comes)
-   is exactly the kind of thing one song alone wouldn't reveal.
-5. Pick the winning model, then move to phase 2 (upload → stems → simple
-   multitrack player).
+Phase 1's job (pick a model with evidence, not a guess) is done. Next:
+
+1. Build the upload → stems → simple multitrack player (mute/solo/volume
+   only, no editing yet — see "Build order" above).
+2. Run separation with **two** models per upload, per the phase 1
+   decision: the Roformer vocal specialist for the vocals stem, Demucs
+   (`htdemucs_ft`) for drums/bass/other. Don't just pick Demucs's bundled
+   vocals output for the sake of simplicity — phase 1 measured a real,
+   sometimes large, accuracy cost to that shortcut.
+3. If `htdemucs_ft`'s ~4x runtime over `htdemucs` becomes a real UX
+   problem on the target laptop (no GPU, 3m21s for `htdemucs` on a single
+   4:19 song in this cloud container — expect similar or worse locally),
+   it's a legitimate, measured tradeoff to fall back to `htdemucs` by
+   default and offer `htdemucs_ft` as a slower "high accuracy" option,
+   not a blind guess either way now.
+4. Keep an eye on bass/"other" quality in real use — phase 1 showed these
+   are inconsistent (near-zero SDR on one of three songs) in a way vocals
+   and drums weren't. If that bites in practice, it's worth a dedicated
+   bass-isolation model (not evaluated here) rather than assuming Demucs'
+   bundled bass/other is good enough everywhere.

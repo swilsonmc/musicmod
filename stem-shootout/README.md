@@ -19,14 +19,76 @@ ground-truth separated audio for a commercially produced track. The plan:
    `museval` (the SDR/ISR/SIR/SAR metric used in the SiSEC/MDX separation
    challenges) — a number, not an impression.
 
-## Status
+## Status: results are in
 
-The harness is built and validated against synthetic data
-(`scripts/smoke_test.py`) **and** three real songs' audio is staged under
-`data/songs/`. It has not actually been run through `audio-separator`
-yet — that needs the heavy deps (`pip install -r requirements.txt`, which
-pulls torch) and real model runs, which weren't done as part of acquiring
-the test material. See `HANDOFF.md` at the repo root for exact next steps.
+The harness has been run end to end against all 3 real songs, comparing
+`htdemucs_ft.yaml` and `htdemucs.yaml` (Demucs v4) against
+`melband_roformer_instvox_duality_v2.ckpt` (a dedicated vocal/instrumental
+Mel-Band-Roformer). All on CPU — no GPU in the environment this ran in.
+
+### Results
+
+SDR in dB, higher is better (median across 1s windows). Full ISR/SIR/SAR
+breakdown is in each song's `results.json`.
+
+**Discipline** (dense industrial mix, hardest case in the set):
+| Model | vocals | drums | bass | other | instrumental |
+|---|---|---|---|---|---|
+| htdemucs_ft.yaml | -3.01 | **4.00** | **2.02** | -3.65 | — |
+| htdemucs.yaml | -3.55 | 3.91 | 1.62 | **-3.03** | — |
+| melband_roformer (vocal spec.) | **-2.83** | — | — | — | 2.84 |
+
+**Nude** (sparse arrangement, easiest case):
+| Model | vocals | drums | bass | other | instrumental |
+|---|---|---|---|---|---|
+| htdemucs_ft.yaml | 6.44 | **6.72** | **10.16** | **8.33** | — |
+| htdemucs.yaml | 6.30 | 6.68 | 9.97 | 8.02 | — |
+| melband_roformer (vocal spec.) | **7.07** | — | — | — | 9.30 |
+
+**A Light That Never Comes** (dual lead+BG vocal harmony):
+| Model | vocals | drums | bass | other | instrumental |
+|---|---|---|---|---|---|
+| htdemucs_ft.yaml | 6.35 | 12.72 | 0.00 | 0.63 | — |
+| htdemucs.yaml | 6.29 | **13.34** | 0.01 | **1.33** | — |
+| melband_roformer (vocal spec.) | **11.60** | — | — | — | **18.63** |
+
+### What this actually tells us
+
+- **For vocal isolation specifically, the dedicated Roformer model wins
+  on every single song** — by a small margin on Discipline and Nude
+  (+0.2 to +0.6dB), and by a huge one on A Light That Never Comes
+  (+5.25dB) — exactly the song with a real lead+backing-vocal harmony
+  mix, which is the use case this project cares most about for the
+  "replace the vocal" feature. **Recommendation: use a dedicated
+  vocal/instrumental Roformer or MDX-Net model specifically for vocal
+  extraction**, not Demucs's bundled vocals output.
+- **For the full 4-stem split** (needed for per-instrument editing),
+  Demucs is the only architecture tested here that does it at all.
+  `htdemucs_ft` edges out the base model on most stems/songs, but not
+  universally (base `htdemucs` wins on A Light That Never Comes' drums,
+  1.33 vs 0.63 on "other") — the fine-tuning benefit is real but small,
+  not the dramatic jump its published benchmark numbers alone would
+  suggest, and not worth its ~4x runtime cost if drums/bass is what you
+  need most.
+- **Bass and "other" are the weak link across the board**, and
+  song-dependent to an extent that matters: near-zero SDR on A Light That
+  Never Comes' bass/other (both Demucs variants), but solidly positive
+  (8-10dB) on Nude's. Density and mastering seem to matter more than
+  genre here — Discipline (real mastered commercial mix) and A Light That
+  Never Comes (synthetic sum, but a dense EDM/rock production) were both
+  harder than Nude (synthetic sum of a deliberately sparse arrangement).
+- **Negative SDR values (Discipline's vocals/other) are a real signal,
+  not a bug** — confirmed by `smoke_test.py` using correctly-signed
+  synthetic data. They mean the estimate's noise/interference outweighs
+  correctly-recovered signal power, which is a genuinely hard case to
+  separate, not a scoring artifact.
+
+**Practical takeaway for the rest of the project**: don't commit to one
+model. Use the Roformer vocal specialist when the goal is isolating or
+replacing vocals, and Demucs (`htdemucs_ft` as the default, `htdemucs` as
+the faster fallback) when a full instrument-by-instrument breakdown is
+needed. This is a "pick the right tool per job" result the shootout
+earned with real numbers, not a guess.
 
 ## The song catalog (`data/songs/`)
 
