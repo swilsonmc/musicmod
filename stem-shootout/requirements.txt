@@ -1,6 +1,6 @@
 # Core separation library — wraps Demucs, MDX-Net, VR-arch, and
 # BS-Roformer/Mel-Band-Roformer checkpoints behind one interface.
-"audio-separator[cpu]"
+audio-separator[cpu]
 
 # Standard SiSEC/MDX-challenge separation metrics (SDR/ISR/SIR/SAR).
 museval>=0.4
