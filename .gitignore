@@ -1,0 +1,17 @@
+# Audio data & model caches - never commit binaries this large
+stem-shootout/data/
+*.wav
+*.flac
+*.mp3
+*.pt
+*.onnx
+*.ckpt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store

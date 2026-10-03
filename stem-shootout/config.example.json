@@ -1,0 +1,19 @@
+{
+  "_comment": "Copy to config.json and fill in once the reference track is chosen and downloaded.",
+
+  "song_name": "Discipline",
+  "album": "The Slip",
+
+  "mixdown": "data/mixdown.wav",
+  "raw_multitrack_dir": "data/reference_raw/",
+  "bucket_mapping": "data/reference_mapping.json",
+
+  "models": [
+    "htdemucs_ft",
+    "htdemucs",
+    "UVR-MDX-NET-Inst-HQ-5",
+    "model_bs_roformer_ep_317_sdr_12.9755"
+  ],
+
+  "_model_note": "Run `audio-separator --list_models` after installing requirements to see current exact identifiers — don't trust the names above blindly, the shootout's model list should be copied from that live list, not guessed."
+}

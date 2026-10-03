@@ -1,0 +1,53 @@
+"""Time-align the busses reference stems to the official mixdown.
+
+The official multitracks and the official mixdown were not necessarily
+bounced with identical head/tail silence, so before scoring we need to find
+the sample offset between them (via cross-correlation of the reference's
+full_mix.wav against the real mixdown) and shift every reference bucket by
+that same offset. Getting this wrong silently tanks every model's score
+equally, which would make the shootout meaningless, so this step reports
+the measured offset for a sanity check.
+"""
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from common import apply_offset, best_offset, load_audio, save_audio
+
+BUCKETS = ["vocals", "drums", "bass", "other"]
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--mixdown", required=True, type=Path, help="Official final stereo mixdown WAV")
+    ap.add_argument("--reference-dir", required=True, type=Path,
+                     help="Output dir from bus_reference.py (contains full_mix.wav + bucket WAVs)")
+    ap.add_argument("--output-dir", required=True, type=Path)
+    args = ap.parse_args()
+
+    mixdown = load_audio(args.mixdown)
+    full_mix = load_audio(args.reference_dir / "full_mix.wav")
+
+    offset = best_offset(reference=mixdown, target=full_mix)
+    print(f"[align] measured offset: {offset} samples "
+          f"({offset / 44100 * 1000:.1f} ms) — reference lags mixdown if positive",
+          file=sys.stderr)
+
+    if abs(offset) > 44100 * 1.5:
+        print("[align] WARNING: offset is larger than 1.5s — double check this is the "
+              "right mixdown/multitrack pair before trusting the scores", file=sys.stderr)
+
+    for bucket in BUCKETS:
+        path = args.reference_dir / f"{bucket}.wav"
+        if not path.exists():
+            continue
+        aligned = apply_offset(load_audio(path), offset)
+        save_audio(args.output_dir / f"{bucket}.wav", aligned)
+
+    print(f"[align] wrote aligned reference stems to {args.output_dir}", file=sys.stderr)
+
+
+if __name__ == "__main__":
+    main()
