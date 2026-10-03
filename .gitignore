@@ -1,8 +1,12 @@
-# Audio data & model caches - never commit binaries this large
-stem-shootout/data/
+# Audio/model binaries - never commit these (large, and often copyrighted
+# source material). config.json/reference_mapping.json/results.md/.json
+# under stem-shootout/data/songs/ are small metadata and SHOULD be tracked.
 *.wav
 *.flac
 *.mp3
+*.7z
+*.afpk
+*.ogg
 *.pt
 *.onnx
 *.ckpt

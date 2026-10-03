@@ -1,12 +1,14 @@
 {
-  "_comment": "Copy to config.json and fill in once the reference track is chosen and downloaded.",
+  "_comment": "One of these lives in each data/songs/<slug>/ folder as config.json. Paths below are relative to that folder, not the repo root.",
 
   "song_name": "Discipline",
+  "artist": "Nine Inch Nails",
   "album": "The Slip",
+  "license_note": "CC BY-NC-SA — official mixdown and multitracks both freely redistributable",
 
-  "mixdown": "data/mixdown.wav",
-  "raw_multitrack_dir": "data/reference_raw/",
-  "bucket_mapping": "data/reference_mapping.json",
+  "mixdown": "mixdown.flac",
+  "raw_multitrack_dir": "reference_raw/",
+  "bucket_mapping": "reference_mapping.json",
 
   "models": [
     "htdemucs_ft",

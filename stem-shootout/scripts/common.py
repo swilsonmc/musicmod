@@ -33,8 +33,16 @@ def load_audio(path: Path, target_sr: int = TARGET_SR) -> np.ndarray:
 
 
 def save_audio(path: Path, data: np.ndarray, sr: int = TARGET_SR) -> None:
+    """Write float32 WAV losslessly.
+
+    soundfile's default WAV subtype is PCM_16, which hard-clips anything
+    outside [-1, 1] — exactly what happens when independent stems are
+    summed without a mix engineer's gain staging. Every intermediate file
+    in this pipeline (reference buckets, aligned stems, estimates) must
+    survive values outside that range untouched, so always write FLOAT.
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    sf.write(str(path), data, sr)
+    sf.write(str(path), data, sr, subtype="FLOAT")
 
 
 def match_length(*arrays: np.ndarray) -> list[np.ndarray]:
@@ -43,7 +51,7 @@ def match_length(*arrays: np.ndarray) -> list[np.ndarray]:
     return [a[:n] for a in arrays]
 
 
-def best_offset(reference: np.ndarray, target: np.ndarray, max_lag_seconds: float = 2.0,
+def best_offset(reference: np.ndarray, target: np.ndarray, max_lag_seconds: float = 90.0,
                  sr: int = TARGET_SR) -> int:
     """Find the sample offset that best aligns `target` to `reference` via cross-correlation.
 
@@ -57,6 +65,12 @@ def best_offset(reference: np.ndarray, target: np.ndarray, max_lag_seconds: floa
     consonants — that alignment actually depends on, silently producing a
     wildly wrong offset. FFT correlation over a full song is still fast
     enough (seconds, not minutes) that the coarse stage isn't needed.
+
+    Default max_lag is 90s, not a couple of seconds: real multitrack
+    sessions routinely run a lot longer than the released edit (NIN's
+    "Discipline" multitrack is ~50s longer than the album cut — an
+    extended intro/outro trimmed before release) and a too-tight search
+    window will silently find the wrong peak instead of the true one.
     """
     ref_mono = reference.mean(axis=1)
     tgt_mono = target.mean(axis=1)
@@ -68,6 +82,21 @@ def best_offset(reference: np.ndarray, target: np.ndarray, max_lag_seconds: floa
     hi = min(len(corr) - 1, zero_lag_index + max_lag)
     best_index = lo + int(np.argmax(corr[lo: hi + 1]))
     return best_index - zero_lag_index
+
+
+def peak_normalize(data: np.ndarray, target_peak: float = 0.98) -> np.ndarray:
+    """Scale so the loudest sample hits target_peak.
+
+    Used when building a synthetic mixdown by summing independently
+    released stems: without a mix engineer's gain staging, that sum
+    routinely exceeds 0dBFS (e.g. +2.5dB on one real test case), which
+    isn't representative of a real mastered mix even once clipping itself
+    is fixed elsewhere.
+    """
+    peak = float(np.abs(data).max())
+    if peak == 0:
+        return data
+    return data * (target_peak / peak)
 
 
 def apply_offset(target: np.ndarray, offset: int) -> np.ndarray:

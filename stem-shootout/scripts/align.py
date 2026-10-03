@@ -32,12 +32,15 @@ def main() -> None:
 
     offset = best_offset(reference=mixdown, target=full_mix)
     print(f"[align] measured offset: {offset} samples "
-          f"({offset / 44100 * 1000:.1f} ms) — reference lags mixdown if positive",
+          f"({offset / 44100:.2f} s) — reference lags mixdown if positive. "
+          "Large offsets are normal (extended intros/outros trimmed before release), "
+          "but double check this is the right mixdown/multitrack pair.",
           file=sys.stderr)
 
-    if abs(offset) > 44100 * 1.5:
-        print("[align] WARNING: offset is larger than 1.5s — double check this is the "
-              "right mixdown/multitrack pair before trusting the scores", file=sys.stderr)
+    if abs(offset) > 44100 * 80:
+        print("[align] WARNING: offset is within 10s of the 90s search window edge — "
+              "the true offset may be outside that window, or this may be the wrong pair",
+              file=sys.stderr)
 
     for bucket in BUCKETS:
         path = args.reference_dir / f"{bucket}.wav"

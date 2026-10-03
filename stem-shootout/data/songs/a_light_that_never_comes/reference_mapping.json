@@ -1,0 +1,6 @@
+{
+  "vocals": ["Lead_Vocals.wav", "BG_Vocals.wav"],
+  "drums": ["Drums.wav"],
+  "bass": ["Bass.wav"],
+  "other": ["Ac__Guitar.wav", "El__Guitar.wav", "Piano.wav", "Effects.wav"]
+}

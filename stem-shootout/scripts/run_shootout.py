@@ -1,11 +1,17 @@
-"""Orchestrate the full model shootout: separate -> align -> score -> report.
+"""Orchestrate the full model shootout for one song: separate -> align -> score -> report.
 
-Reads config.json (see config.example.json) for the song paths and the list
-of audio-separator models to compare, runs each model, scores it against
-the aligned official reference stems, and writes a markdown leaderboard.
+Takes a path to a song's config.json (see config.example.json) — every path
+inside it is relative to that config file's own directory, so each song
+under data/songs/<slug>/ is self-contained. Separates the mixdown with
+every configured model, aligns the real reference stems to the mixdown's
+timeline, scores each model, and writes results.md/results.json next to
+the config.
+
+Usage: python run_shootout.py --config ../data/songs/discipline/config.json
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -16,13 +22,11 @@ from common import apply_offset, best_offset, load_audio, save_audio
 from score import build_reference_set, score_model
 from separate import run_model
 
-ROOT = Path(__file__).parent.parent
 
-
-def ensure_aligned_reference(config: dict) -> Path:
-    reference_raw = ROOT / config["raw_multitrack_dir"]
-    reference_dir = ROOT / "data" / "reference_bucketed"
-    aligned_dir = ROOT / "data" / "reference_aligned"
+def ensure_aligned_reference(config: dict, song_dir: Path) -> Path:
+    reference_raw = song_dir / config["raw_multitrack_dir"]
+    reference_dir = song_dir / "reference_bucketed"
+    aligned_dir = song_dir / "reference_aligned"
 
     if aligned_dir.exists() and any(aligned_dir.iterdir()):
         print(f"[shootout] reusing existing aligned reference at {aligned_dir}", file=sys.stderr)
@@ -32,15 +36,16 @@ def ensure_aligned_reference(config: dict) -> Path:
     sys.argv = [
         "bus_reference.py",
         "--raw-dir", str(reference_raw),
-        "--mapping", str(ROOT / config["bucket_mapping"]),
+        "--mapping", str(song_dir / config["bucket_mapping"]),
         "--output-dir", str(reference_dir),
     ]
     bus_main()
 
-    mixdown = load_audio(ROOT / config["mixdown"])
+    mixdown = load_audio(song_dir / config["mixdown"])
     full_mix = load_audio(reference_dir / "full_mix.wav")
     offset = best_offset(reference=mixdown, target=full_mix)
-    print(f"[shootout] reference/mixdown offset: {offset} samples", file=sys.stderr)
+    print(f"[shootout] reference/mixdown offset: {offset} samples "
+          f"({offset / 44100:.2f}s)", file=sys.stderr)
 
     for bucket in ("vocals", "drums", "bass", "other"):
         aligned = apply_offset(load_audio(reference_dir / f"{bucket}.wav"), offset)
@@ -49,9 +54,10 @@ def ensure_aligned_reference(config: dict) -> Path:
     return aligned_dir
 
 
-def render_markdown(results: list[dict]) -> str:
+def render_markdown(song_name: str, results: list[dict]) -> str:
     stems = ["vocals", "drums", "bass", "other", "instrumental"]
-    lines = ["| Model | " + " | ".join(f"{s} SDR" for s in stems) + " |",
+    lines = [f"# {song_name}", "",
+             "| Model | " + " | ".join(f"{s} SDR" for s in stems) + " |",
              "|---" * (len(stems) + 1) + "|"]
     for r in results:
         row = [r["model"]]
@@ -68,26 +74,30 @@ def render_markdown(results: list[dict]) -> str:
 
 
 def main() -> None:
-    config_path = ROOT / "config.json"
-    if not config_path.exists():
-        sys.exit("No config.json — copy config.example.json to config.json and fill it in first")
-    config = json.loads(config_path.read_text())
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--config", required=True, type=Path, help="Path to a song's config.json")
+    args = ap.parse_args()
 
-    aligned_dir = ensure_aligned_reference(config)
+    if not args.config.exists():
+        sys.exit(f"No such config: {args.config}")
+    config = json.loads(args.config.read_text())
+    song_dir = args.config.parent
+
+    aligned_dir = ensure_aligned_reference(config, song_dir)
     refs = build_reference_set(aligned_dir)
 
-    estimates_root = ROOT / "data" / "estimates"
+    estimates_root = song_dir / "estimates"
     results = []
     for model in config["models"]:
-        manifest = run_model(ROOT / config["mixdown"], model, estimates_root)
-        result = score_model(manifest, estimates_root / model, refs)
+        manifest = run_model(song_dir / config["mixdown"], model, estimates_root)
+        result = score_model(manifest, refs)
         result["model"] = model
         results.append(result)
         print(f"[shootout] {model}: {result['stems']}", file=sys.stderr)
 
-    (ROOT / "data" / "results.json").write_text(json.dumps(results, indent=2))
-    report = render_markdown(results)
-    (ROOT / "data" / "results.md").write_text(report)
+    (song_dir / "results.json").write_text(json.dumps(results, indent=2))
+    report = render_markdown(config["song_name"], results)
+    (song_dir / "results.md").write_text(report)
     print(report)
 
 

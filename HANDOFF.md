@@ -114,72 +114,94 @@ ground rules above.
 
 ## Current state: Phase 1 (stem-shootout)
 
-Location: `stem-shootout/` in this repo. **The harness is built and
-validated against synthetic data — it has not run on real audio yet.**
+Location: `stem-shootout/` in this repo. **The harness is built, and real
+test audio for 3 songs is staged. `audio-separator` itself (the heavy
+dependency — pulls torch) has not actually been installed/run yet — that's
+the next step, not done as part of acquiring the material.**
 
 What exists:
 - `scripts/common.py` — shared audio I/O + FFT-based cross-correlation
-  alignment (note: an earlier decimate-then-refine version of this had a
-  real bug — it could silently discard the transients alignment depends
-  on; replaced with direct FFT correlation and re-validated).
+  alignment. Default search window is 90s, not a couple of seconds — real
+  multitrack sessions run a lot longer than the released edit (Discipline's
+  is ~50s longer). All WAVs are written as 32-bit float, not the default
+  16-bit PCM — summing independent stems without a mix engineer's gain
+  staging routinely exceeds 0dBFS (Nude's raw sum hit +2.5dB) and 16-bit
+  would silently hard-clip that into real distortion.
 - `scripts/separate.py` — runs any `audio-separator` model over a mixdown,
   canonicalizes its output filenames into {vocals, drums, bass, other,
-  instrumental}, records what each model actually produced in
-  `manifest.json` (not every model produces all 4 stems).
-- `scripts/bus_reference.py` — sums NIN's raw per-instrument multitrack
-  files into the 4 canonical buckets, per a JSON mapping you fill in once
-  you see the real track list.
-- `scripts/align.py` — cross-correlates the busses reference against the
-  official mixdown, reports the measured offset (sanity-check it's not
-  implausibly large), applies it to each reference bucket.
+  instrumental}, records what each model actually produced in an
+  absolute-path `manifest.json` (not every model produces all 4 stems).
+- `scripts/bus_reference.py` — sums per-instrument multitrack files into
+  the 4 canonical buckets, per a JSON mapping (one already written per
+  song — see below).
+- `scripts/align.py` — cross-correlates the bussed reference against the
+  official mixdown, reports the measured offset, applies it to each
+  reference bucket.
 - `scripts/score.py` — `museval` SDR/ISR/SIR/SAR scoring; evaluates all of
   a model's available stems together in one call (SIR needs every true
   source present at once, not one at a time), handles both 4-stem and
   2-stem (vocals+instrumental) models.
-- `scripts/run_shootout.py` — orchestrates all of the above across a
-  configured model list, writes `data/results.md` (leaderboard) and
-  `data/results.json` (full metric breakdown).
+- `scripts/run_shootout.py` — takes `--config <song>/config.json`, runs
+  that one song end to end, writes `results.md`/`results.json` next to
+  its config. Each song under `data/songs/<slug>/` is self-contained.
 - `scripts/smoke_test.py` — synthetic end-to-end test of the whole
-  pipeline (no real audio needed). **Passing.** Caught the alignment bug
-  above before it could silently corrupt a real comparison.
-- `requirements.txt`, `config.example.json`, `README.md` (full usage
-  instructions are in `stem-shootout/README.md` — don't duplicate them
-  here).
+  pipeline (no real audio needed). **Passing.**
 
-### What's blocking real data
+Three real bugs were caught and fixed while building/testing this, all
+worth knowing about going in: (1) an early decimate-then-refine alignment
+approach could silently discard the exact transients alignment depends on
+and lock onto the wrong peak — replaced with direct FFT correlation;
+(2) `separate.py` and `score.py` disagreed about what a manifest path was
+relative to, which the smoke test's own hand-rolled manifest masked —
+fixed by using absolute paths, and the smoke test now drives the real
+`separate.py` code instead of reimplementing it; (3) `save_audio` was
+defaulting to 16-bit PCM, silently clipping the over-0dBFS synthetic
+mixdowns described above — fixed to always write float.
 
-The cloud session's network egress policy blocks `archive.org` and the
-NIN fan-site mirrors (`nin.wiki`, `nindestruct.com`) that host the
-official mixdown + multitrack files. This should be a non-issue locally —
-your own machine has normal internet access.
+### The song catalog — real audio already downloaded, not committed to git
 
-Research already done (don't redo it): NIN released the complete official
-multitracks for **every song on *The Slip*** (free, CC-licensed, via the
-now-defunct remix.nin.com, mirrored on archive.org after the 2016
-takedown) and for four songs on *Ghosts I–IV* (which is fully
-instrumental, so only useful for drums/bass/other, not vocals — pick a
-*Slip* track instead for the full 4-stem test).
+`stem-shootout/data/songs/<slug>/` (gitignored — audio never goes in git,
+only the small `config.json`/`reference_mapping.json` per song do, which
+**are** committed):
 
-### Next steps (pick up here locally)
+- **`discipline`** — Nine Inch Nails, "Discipline" (*The Slip*). CC
+  BY-NC-SA. Both the official mixdown (`mixdown.flac`) and the official
+  multitrack stems (`reference_raw/*.flac`) are the real files — no
+  synthetic mixdown needed. 14 raw tracks incl. 3 vocal layers (Lead, BV,
+  Woo Voc) — bucketed in `reference_mapping.json`.
+- **`nude`** — Radiohead, "Nude" (*In Rainbows*). 5 cleanly-labeled
+  official stems from a 2008 remix contest (archive.org item
+  `nudestems`), already public. Single falsetto lead, no harmony layer.
+  **Not CC** — `mixdown.wav` here is a peak-normalized sum of the official
+  stems (same methodology MUSDB18 itself uses for its mixtures), not an
+  independently-sourced master.
+- **`a_light_that_never_comes`** — Linkin Park & Steve Aoki. 8
+  cleanly-labeled official stems (archive.org item
+  `linkin-park-a-light-that-never-comes-remix-stems`) including
+  **separate Lead_Vocals + BG_Vocals** — the clearest harmony-vocal case
+  in the set. Same non-CC/synthetic-mixdown caveat as `nude`.
 
-1. Pick a specific song from *The Slip* with clear vocals/drums/bass/other
-   (e.g. a well-known track like "Discipline" — confirm it actually has
-   official multitrack stems available before committing to it).
-2. Find and download: (a) its official stereo mixdown, (b) its official
-   raw multitrack WAV stems — via archive.org's mirror of
-   remix.nin.com, or nindestruct.com. Put them under
-   `stem-shootout/data/mixdown.wav` and
-   `stem-shootout/data/reference_raw/`.
-3. Write `stem-shootout/data/reference_mapping.json` (bucket mapping —
-   format documented in `scripts/bus_reference.py`'s docstring) based on
-   the real track list you now have.
-4. `pip install -r stem-shootout/requirements.txt`, then
-   `audio-separator --list_models` to get current real model identifiers
-   — the names in `config.example.json` are placeholders, don't trust
-   them blindly.
-5. Copy `config.example.json` → `config.json`, fill in the song name and
-   model list.
-6. `python scripts/run_shootout.py` — review `data/results.md`, sanity
-   check the printed alignment offset isn't implausibly large.
-7. Pick the winning model based on the SDR table, then move to phase 2
-   (upload → stems → simple multitrack player).
+Full detail, including a strong optional 4th candidate (**Bon Iver's
+self-titled album** — dense multi-tracked harmony vocals, full official
+stems on archive.org as `bon-iver-bon-iver-full-album-stems`, but the
+per-track filenames are deliberately obfuscated to place names so adding
+it means actually listening to and classifying each track, not just
+reading filenames) is in `stem-shootout/README.md` — don't duplicate that
+here, read it there.
+
+### Next steps (pick up here, locally or in a further cloud session)
+
+1. `pip install -r stem-shootout/requirements.txt` (pulls torch — this is
+   the heavy step not yet done), then `audio-separator --list_models` to
+   get current real model identifiers — the ones in each song's
+   `config.json` are placeholders, don't trust them blindly.
+2. Update each song's `config.json` `"models"` list from that real list.
+3. `python scripts/run_shootout.py --config ../data/songs/discipline/config.json`
+   (and repeat for `nude`, `a_light_that_never_comes`) — review
+   `results.md` per song, sanity-check the printed alignment offset.
+4. Compare results across all 3 songs — a model that wins on Discipline's
+   dense industrial mix but falls apart on Nude's sparse falsetto (or
+   can't separate Lead_Vocals from BG_Vocals on A Light That Never Comes)
+   is exactly the kind of thing one song alone wouldn't reveal.
+5. Pick the winning model, then move to phase 2 (upload → stems → simple
+   multitrack player).

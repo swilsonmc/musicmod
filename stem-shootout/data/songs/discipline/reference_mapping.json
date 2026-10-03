@@ -1,0 +1,14 @@
+{
+  "vocals": ["Discipline Lead.flac", "Discipline BV.flac", "Discipline Woo Voc.flac"],
+  "drums": ["Discipline Drums.flac", "Discipline Perc.flac"],
+  "bass": ["Discipline Bass.flac", "Discipline Vostok Bass.flac"],
+  "other": [
+    "Discipline Lo Tone.flac",
+    "Discipline Marimba.flac",
+    "Discipline Piano.flac",
+    "Discipline Riff.flac",
+    "Discipline Tone.flac",
+    "Discipline Vostok Riff.flac",
+    "Discipline Xpander.flac"
+  ]
+}

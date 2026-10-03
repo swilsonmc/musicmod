@@ -37,6 +37,35 @@ def canonicalize(filename: str) -> str | None:
     return None
 
 
+def canonicalize_outputs(model_dir: Path) -> dict[str, str]:
+    """Rename whatever a model produced in model_dir into canonical stem names
+    and write manifest.json. Pulled out of run_model() so a test can exercise
+    this exact renaming/path logic without actually invoking audio-separator —
+    a hand-rolled parallel implementation here previously diverged from the
+    real one and masked a path-resolution bug.
+    """
+    manifest: dict[str, str] = {}
+    for produced in model_dir.glob("*.wav"):
+        canonical = canonicalize(produced.name)
+        if canonical is None:
+            print(f"[separate] WARNING: couldn't classify {produced.name}, leaving as-is", file=sys.stderr)
+            continue
+        target = model_dir / f"{canonical}.wav"
+        if produced != target:
+            shutil.move(str(produced), str(target))
+        # Absolute path, deliberately: this manifest is a transient artifact
+        # read back by score.py in the same run, not something meant to be
+        # portable, and a relative-path convention here previously caused a
+        # real path-resolution bug once two scripts disagreed on what it was
+        # relative to.
+        manifest[canonical] = str(target.resolve())
+
+    manifest_path = model_dir / "manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2))
+    print(f"[separate] {model_dir.name} produced: {sorted(manifest)}", file=sys.stderr)
+    return manifest
+
+
 def run_model(mixdown: Path, model: str, output_dir: Path) -> dict[str, str]:
     model_dir = output_dir / model
     model_dir.mkdir(parents=True, exist_ok=True)
@@ -51,21 +80,7 @@ def run_model(mixdown: Path, model: str, output_dir: Path) -> dict[str, str]:
     print(f"[separate] running: {' '.join(cmd)}", file=sys.stderr)
     subprocess.run(cmd, check=True)
 
-    manifest: dict[str, str] = {}
-    for produced in model_dir.glob("*.wav"):
-        canonical = canonicalize(produced.name)
-        if canonical is None:
-            print(f"[separate] WARNING: couldn't classify {produced.name}, leaving as-is", file=sys.stderr)
-            continue
-        target = model_dir / f"{canonical}.wav"
-        if produced != target:
-            shutil.move(str(produced), str(target))
-        manifest[canonical] = str(target.relative_to(output_dir.parent))
-
-    manifest_path = model_dir / "manifest.json"
-    manifest_path.write_text(json.dumps(manifest, indent=2))
-    print(f"[separate] {model} produced: {sorted(manifest)}", file=sys.stderr)
-    return manifest
+    return canonicalize_outputs(model_dir)
 
 
 def main() -> None:

@@ -38,7 +38,7 @@ def build_reference_set(reference_dir: Path) -> dict[str, np.ndarray]:
     return refs
 
 
-def score_model(manifest: dict[str, str], estimates_root: Path, refs: dict[str, np.ndarray]) -> dict:
+def score_model(manifest: dict[str, str], refs: dict[str, np.ndarray]) -> dict:
     available = [b for b in manifest if b in refs]
     if set(FULL_4STEM).issubset(available):
         stems = FULL_4STEM
@@ -52,7 +52,7 @@ def score_model(manifest: dict[str, str], estimates_root: Path, refs: dict[str, 
 
     ref_arrays, est_arrays = [], []
     for stem in stems:
-        est = load_audio(estimates_root.parent / manifest[stem])
+        est = load_audio(Path(manifest[stem]))
         ref, est = match_length(refs[stem], est)
         ref_arrays.append(ref)
         est_arrays.append(est)
@@ -89,7 +89,7 @@ def main() -> None:
     manifest = json.loads(manifest_path.read_text())
 
     refs = build_reference_set(args.reference_dir)
-    result = score_model(manifest, args.estimates_dir, refs)
+    result = score_model(manifest, refs)
     result["model"] = args.estimates_dir.name
 
     print(json.dumps(result, indent=2))

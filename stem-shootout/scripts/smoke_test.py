@@ -19,6 +19,7 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent))
 from common import apply_offset, best_offset, load_audio, save_audio  # noqa: E402
 from score import build_reference_set, score_model  # noqa: E402
+from separate import canonicalize_outputs  # noqa: E402
 
 SR = 44100
 DUR = 6
@@ -90,27 +91,30 @@ def main() -> None:
         aligned = apply_offset(load_audio(reference_dir / f"{bucket}.wav"), measured_offset)
         save_audio(aligned_dir / f"{bucket}.wav", aligned)
 
+    # Write fake "separator output" with the same kind of filenames
+    # audio-separator itself produces, then run it through the real
+    # canonicalize_outputs() — exercising separate.py's actual manifest
+    # logic, not a hand-rolled stand-in that previously diverged from it.
     rng = np.random.default_rng(99)
-    manifest = {}
+    noisy_dir = estimates_dir / "fake_noisy_model"
     for bucket, data in stems.items():
         shifted = apply_offset(data, -injected_offset)
         noisy = shifted + 0.5 * rng.standard_normal(shifted.shape).astype("float32")
-        save_audio(estimates_dir / f"{bucket}.wav", noisy)
-        manifest[bucket] = str((estimates_dir / f"{bucket}.wav").relative_to(TMP / "estimates"))
-    (estimates_dir / "manifest.json").write_text(json.dumps(manifest))
+        save_audio(noisy_dir / f"track_({bucket}).wav", noisy)
+    manifest = canonicalize_outputs(noisy_dir)
 
     refs = build_reference_set(aligned_dir)
-    result = score_model(manifest, estimates_dir, refs)
+    result = score_model(manifest, refs)
     print("[smoke] noisy-estimate scores:", json.dumps(result, indent=2))
     assert all(v["SDR"] < 10 for v in result["stems"].values()), \
         "expected a noisy estimate to score a modest SDR, not something inflated"
 
-    manifest_perfect = {}
+    perfect_dir = estimates_dir / "fake_perfect_model"
     for bucket, data in stems.items():
         shifted = apply_offset(data, -injected_offset)
-        save_audio(estimates_dir / f"{bucket}_perfect.wav", shifted)
-        manifest_perfect[bucket] = str((estimates_dir / f"{bucket}_perfect.wav").relative_to(TMP / "estimates"))
-    result_perfect = score_model(manifest_perfect, estimates_dir, refs)
+        save_audio(perfect_dir / f"track_({bucket}).wav", shifted)
+    manifest_perfect = canonicalize_outputs(perfect_dir)
+    result_perfect = score_model(manifest_perfect, refs)
     print("[smoke] perfect-estimate scores:", json.dumps(result_perfect, indent=2))
     assert all(v["SDR"] > 15 for v in result_perfect["stems"].values()), \
         "expected a perfect estimate to score a very high SDR"

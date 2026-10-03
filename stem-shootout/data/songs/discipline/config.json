@@ -1,0 +1,17 @@
+{
+  "song_name": "Discipline",
+  "artist": "Nine Inch Nails",
+  "album": "The Slip",
+  "license_note": "CC BY-NC-SA — official mixdown and multitracks both freely redistributable",
+  "genre_notes": "industrial/alt-rock, baritone lead + 2 harmony vocal layers (BV, Woo Voc), synth-heavy",
+
+  "mixdown": "mixdown.flac",
+  "raw_multitrack_dir": "reference_raw/",
+  "bucket_mapping": "reference_mapping.json",
+
+  "models": [
+    "htdemucs_ft",
+    "htdemucs"
+  ],
+  "_model_note": "Run `audio-separator --list_models` and replace/extend this list with real current identifiers before running — don't trust these blindly."
+}
