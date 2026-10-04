@@ -76,6 +76,11 @@ def render_markdown(song_name: str, results: list[dict]) -> str:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--config", required=True, type=Path, help="Path to a song's config.json")
+    ap.add_argument("--force", action="store_true",
+                     help="Re-run separation even for models that already have a manifest.json "
+                          "(by default those are reused — separation is the expensive step, "
+                          "scoring is cheap and always re-runs so results reflect the current "
+                          "reference alignment)")
     args = ap.parse_args()
 
     if not args.config.exists():
@@ -89,7 +94,13 @@ def main() -> None:
     estimates_root = song_dir / "estimates"
     results = []
     for model in config["models"]:
-        manifest = run_model(song_dir / config["mixdown"], model, estimates_root)
+        manifest_path = estimates_root / model / "manifest.json"
+        if not args.force and manifest_path.exists():
+            print(f"[shootout] {model}: reusing existing separation output "
+                  f"(pass --force to redo)", file=sys.stderr)
+            manifest = json.loads(manifest_path.read_text())
+        else:
+            manifest = run_model(song_dir / config["mixdown"], model, estimates_root)
         result = score_model(manifest, refs)
         result["model"] = model
         results.append(result)

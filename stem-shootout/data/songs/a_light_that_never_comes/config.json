@@ -10,6 +10,7 @@
   "models": [
     "htdemucs_ft.yaml",
     "htdemucs.yaml",
-    "melband_roformer_instvox_duality_v2.ckpt"
+    "melband_roformer_instvox_duality_v2.ckpt",
+    "Kim_Vocal_2.onnx"
   ]
 }

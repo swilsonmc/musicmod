@@ -12,6 +12,101 @@ later phases need `/var/www`, your actual MySQL/PHP stack, persistent
 storage, and testing on your real (low-performance) hardware — none of
 which the cloud container has.
 
+## Setting up the local session, step by step
+
+One clarification first: **Claude Code's dedicated desktop GUI only ships
+for Mac and Windows** — there isn't a Linux build of that specific app.
+On Linux, the real equivalent (same product, same capabilities, just a
+terminal instead of a window) is the `claude` CLI. If you specifically
+want the Claude *Desktop* app (the general chat app, which does run on
+Linux) involved too, that's possible via a linking feature covered in
+step 5 below — but the CLI is what actually does the work either way.
+
+### 1. Install the Claude Code CLI
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+(Needs Node.js installed first — `sudo apt install nodejs npm` on Mint if
+you don't have it. If this exact package name has changed by the time
+you read this, check docs.claude.com/claude-code for the current install
+command rather than assuming this one still works.)
+
+### 2. Clone the repo into `/var/www`
+
+`/var/www` is usually owned by `root`/`www-data`, so a plain `git clone`
+there as your normal user will likely fail on permissions:
+
+```bash
+sudo mkdir -p /var/www/musicmod
+sudo chown "$USER":"$USER" /var/www/musicmod
+git clone https://github.com/swilsonmc/musicmod.git /var/www/musicmod
+cd /var/www/musicmod
+git checkout claude/festive-euler-4x5thj
+```
+
+(Adjust the branch name if later work has moved to a new one — check
+`git branch -a` after cloning, or look at the repo on GitHub, if this
+exact name is stale by the time you read it.)
+
+### 3. Set up git push credentials, so local commits actually reach GitHub
+
+The user explicitly wants this local session's code and commits to keep
+landing on GitHub, the same way this cloud session's did — that needs
+git to be authenticated locally, which a fresh clone isn't by default.
+Simplest path, using the GitHub CLI:
+
+```bash
+sudo apt install gh    # or see cli.github.com for other install methods
+gh auth login          # interactive — follow the browser login flow
+gh auth setup-git      # wires that login into git's credential helper
+```
+
+Verify it worked with a harmless no-op push, e.g. `git push` right after
+a commit with no changes should just say "Everything up-to-date" rather
+than prompting for a username/password it then rejects.
+
+### 4. Start the session in that directory
+
+```bash
+cd /var/www/musicmod
+claude
+```
+
+Then, as your first message, tell it to read this file:
+
+> Read HANDOFF.md and continue from where it leaves off.
+
+That gives it the full project context — vision, decisions made, current
+phase status — without you having to re-explain any of it.
+
+### 5. (Optional) Drive it from the Claude Desktop app instead of a terminal
+
+If you'd rather watch/drive this from the Claude Desktop app's window
+instead of a bare terminal: install the Desktop app (Linux build from
+claude.ai/download, if one's available at the time — check), then from a
+terminal **in `/var/www/musicmod`** run:
+
+```bash
+claude remote-control
+```
+
+That links this local folder's session into the Desktop app's Code
+interface, so you get the GUI experience while the actual work still
+happens against your real local filesystem and git repo, not a cloud
+container.
+
+### 6. Keep committing and pushing as you go
+
+Nothing automatic pushes code for you — that's a deliberate safety
+behavior, not a gap. Ask the local session to commit and push after
+meaningful chunks of work (it already knows to do this from this repo's
+own conventions, visible in its git history), or do it yourself with
+plain `git add`/`commit`/`push`. If `git status` ever wants to stage an
+audio file, stop — check `.gitignore` before committing, audio should
+never land in this repo.
+
 ## The vision
 
 A locally-hosted web app that:

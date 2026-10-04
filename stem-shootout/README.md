@@ -190,3 +190,27 @@ longer than the album cut), scores each model, and writes
   staging routinely produces peaks above 0dBFS (Nude's raw sum peaked at
   +2.5dB) — 16-bit PCM would silently hard-clip that into real distortion
   before a single model even runs.
+
+## Utility scripts for adding new songs
+
+Beyond the core pipeline, a few scripts exist specifically to lower the
+friction of adding more songs — see [`../CONTRIBUTING.md`](../CONTRIBUTING.md)
+for the full step-by-step, this is just a map:
+
+- **`scripts/zip_range_extract.py`** — pulls specific files out of a huge
+  remote ZIP (e.g. a whole-album stems release) via HTTP range requests,
+  without downloading the rest. Used to pull one song's stems out of Bon
+  Iver's ~2GB full-album zip for ~87% less bandwidth.
+- **`scripts/classify_tracks.py`** — fast signal-processing heuristics
+  (percussive ratio, low-frequency energy, pitch) to draft a
+  `reference_mapping.json` for a song whose track filenames are
+  deliberately obfuscated. Works reasonably for drums/bass; **cannot
+  reliably tell vocals apart from other melodic instruments** — verified
+  this the hard way on real data (see below).
+- **`scripts/ml_vocal_check.py`** — the fix for that gap: runs each
+  candidate track through an actual vocal-isolation model and measures
+  how much energy routes to its vocals output, rather than guessing from
+  pitch alone. Slower (~4min/track on CPU) but the right tool for a
+  distinction a pitch heuristic genuinely can't make.
+- **`scripts/aggregate_results.py`** — rebuilds `LEADERBOARD.md` (cross-
+  song, cross-model) from every song's `results.json`.

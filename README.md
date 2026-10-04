@@ -60,10 +60,14 @@ small `config.json`/`reference_mapping.json` are tracked in git.
 ## Repo layout
 
 ```
-HANDOFF.md              full project vision, architecture decisions, and status log
+HANDOFF.md               full project vision, architecture decisions, and status log
+CONTRIBUTING.md          how to add a new song to the shootout, and general workflow
+LICENSE                  MIT, for the code in this repo — not for any third-party test audio
 stem-shootout/           Phase 1: the model-accuracy validation harness
-  scripts/               separation runner, reference alignment, museval scoring
-  data/songs/<slug>/     per-song config + real audio (gitignored) + results
+  LEADERBOARD.md          auto-generated cross-song model comparison (see CONTRIBUTING.md)
+  scripts/                 separation runner, reference alignment, museval scoring,
+                            plus utilities for adding new songs (see CONTRIBUTING.md)
+  data/songs/<slug>/      per-song config + real audio (gitignored) + results
 ```
 
 ## Ground rules
@@ -73,3 +77,10 @@ stem-shootout/           Phase 1: the model-accuracy validation harness
 - **Everything is free/open-source software run on your own hardware** —
   no required paid services. See `HANDOFF.md` for the specific tools and
   why each was chosen.
+
+## Contributing
+
+Adding a song to the shootout, or picking up development locally? See
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) and [`HANDOFF.md`](./HANDOFF.md)
+respectively — both are written for whoever (human or AI agent) picks
+this up next, not just the original author.
