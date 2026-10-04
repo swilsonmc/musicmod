@@ -1,0 +1,18 @@
+{
+  "song_name": "Perth",
+  "artist": "Bon Iver",
+  "album": "Bon Iver, Bon Iver",
+  "license_note": "Commercial release, not CC. Stems were released for the 2012 'Stems Project' remix contest and are already public (archive.org item 'bon-iver-bon-iver-full-album-stems'); the mixdown used here is a peak-normalized SUM of those official stems (same methodology MUSDB18 uses), not an independently sourced master - see README. Track filenames are deliberately obfuscated place names; the vocals/drums/bass/other split was built automatically (see reference_mapping.json's _method field and CONTRIBUTING.md), not by listening to each track.",
+  "genre_notes": "indie-folk/orchestral, dense wall-of-sound production, falsetto lead with doubled vocal layers across only 2 of 10 tracks (sparser vocal-channel count than the other songs in this catalog, despite the album's reputation for heavy vocal layering) - a useful counterexample to 'more vocal harmony = more vocal tracks'",
+
+  "mixdown": "mixdown.wav",
+  "raw_multitrack_dir": "reference_raw/",
+  "bucket_mapping": "reference_mapping.json",
+
+  "models": [
+    "htdemucs_ft.yaml",
+    "htdemucs.yaml",
+    "melband_roformer_instvox_duality_v2.ckpt",
+    "Kim_Vocal_2.onnx"
+  ]
+}

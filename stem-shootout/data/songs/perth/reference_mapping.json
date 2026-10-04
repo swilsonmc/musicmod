@@ -1,0 +1,9 @@
+{
+  "_method": "Track filenames are deliberately obfuscated (place names, not instrument names) by the original release. This mapping was built automatically, not by listening: scripts/ml_vocal_check.py (vocal-isolation-model energy ratio) decided vocal vs. non-vocal, then scripts/classify_tracks.py's percussive-ratio/low-frequency-energy features split the remainder into drums/bass/other. Cross-checked against the few filenames that happen to leak a hint ('field_drum_pa' -> drums, 'february_base' -> bass) as a sanity check, not as the basis for the classification itself. See CONTRIBUTING.md.",
+
+  "vocals": ["harbor.wav", "holler_mi.wav"],
+  "drums": ["field_drum_pa.wav"],
+  "bass": ["february_base.wav"],
+  "other": ["badger_falls.wav", "dyer_alaskian_riveria.wav", "foster_creek.wav",
+            "hemesy_ga.wav", "otter_canyon.wav", "saxpahaw.wav"]
+}
