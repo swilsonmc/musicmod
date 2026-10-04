@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -30,7 +31,27 @@ CANONICAL_PATTERNS = {
 
 
 def canonicalize(filename: str) -> str | None:
+    """audio-separator names output files `<input>_(<StemLabel>)_<model>.<ext>`.
+
+    Match against just the parenthesized stem label first, not the whole
+    filename — matching the whole filename is a real bug that bit us:
+    `Kim_Vocal_2.onnx`'s own model name contains "vocal", so the
+    instrumental output (`..._(Instrumental)_Kim_Vocal_2.wav`) also
+    matched the "vocals" pattern and silently overwrote the real vocals
+    file when both got renamed to the same canonical target. Falls back
+    to whole-filename matching only if no parenthesized label is found,
+    for models that don't follow this naming convention.
+    """
     lower = filename.lower()
+    labels = re.findall(r"\(([^)]+)\)", lower)
+    for label in labels:
+        for canonical, patterns in CANONICAL_PATTERNS.items():
+            if any(p in label for p in patterns):
+                return canonical
+    if labels:
+        return None  # had a label, just not one we recognize — don't fall through
+        # to whole-filename matching, which could wrongly match the model name instead.
+
     for canonical, patterns in CANONICAL_PATTERNS.items():
         if any(p in lower for p in patterns):
             return canonical
@@ -51,6 +72,13 @@ def canonicalize_outputs(model_dir: Path) -> dict[str, str]:
             print(f"[separate] WARNING: couldn't classify {produced.name}, leaving as-is", file=sys.stderr)
             continue
         target = model_dir / f"{canonical}.wav"
+        if canonical in manifest and produced != Path(manifest[canonical]):
+            # Defense in depth: two different output files mapped to the same
+            # bucket, which would otherwise silently clobber one with the
+            # other (exactly how the Kim_Vocal_2 bug above went unnoticed).
+            sys.exit(f"[separate] REFUSING to continue: both {manifest[canonical]!r} "
+                     f"and {produced!r} canonicalized to '{canonical}' — fix "
+                     f"canonicalize() for this model's naming convention first")
         if produced != target:
             shutil.move(str(produced), str(target))
         # Absolute path, deliberately: this manifest is a transient artifact

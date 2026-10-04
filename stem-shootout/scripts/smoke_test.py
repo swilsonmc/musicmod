@@ -119,6 +119,24 @@ def main() -> None:
     assert all(v["SDR"] > 15 for v in result_perfect["stems"].values()), \
         "expected a perfect estimate to score a very high SDR"
 
+    # Regression test for a real bug: a model whose own name contains a
+    # bucket substring (Kim_Vocal_2.onnx contains "vocal") made its
+    # instrumental output's filename also match the "vocals" pattern,
+    # silently overwriting the real vocals file when both canonicalized
+    # to the same target. audio-separator's real naming convention is
+    # `<input>_(<StemLabel>)_<model>.<ext>` — simulate that exactly, with
+    # a model name chosen to trigger the old bug if it regressed.
+    collision_dir = estimates_dir / "fake_vocal_model"
+    save_audio(collision_dir / "track_(Vocals)_Kim_Vocal_2.wav", stems["vocals"])
+    save_audio(collision_dir / "track_(Instrumental)_Kim_Vocal_2.wav", stems["drums"])
+    collision_manifest = canonicalize_outputs(collision_dir)
+    assert set(collision_manifest) == {"vocals", "instrumental"}, \
+        f"expected both vocals and instrumental preserved, got {sorted(collision_manifest)}"
+    assert not np.allclose(
+        load_audio(Path(collision_manifest["vocals"])),
+        load_audio(Path(collision_manifest["instrumental"])),
+    ), "vocals and instrumental ended up with identical content — the collision bug is back"
+
     shutil.rmtree(TMP)
     print("[smoke] PASSED — alignment + scoring pipeline behaves correctly on synthetic data")
 
