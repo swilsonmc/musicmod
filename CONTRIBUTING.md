@@ -113,11 +113,25 @@ current.
 python scripts/run_shootout.py --config ../data/songs/<slug>/config.json
 ```
 
-Sanity-check the printed alignment offset before trusting the scores —
-it can legitimately be tens of seconds (real sessions often run longer
-than the released edit), but if it's wildly implausible, something's
-wrong with the mixdown/multitrack pairing. Re-running is cheap: already-
-separated models are reused automatically (pass `--force` to redo them).
+Sanity-check **both** printed numbers before trusting the scores:
+
+- **The alignment offset** can legitimately be tens of seconds (real
+  sessions often run longer than the released edit), but if it's wildly
+  implausible, something's wrong with the mixdown/multitrack pairing.
+- **The gain-staging ratio** (full_mix/mixdown RMS) should land roughly
+  in 0.4-2.0. Outside that, the raw tracks probably aren't gain-staged
+  consistently with the mixdown — this happened for real with Bon Iver's
+  "Perth" (every bucket summed wildly out of proportion to the mixdown,
+  bass alone hit 195%) and produced completely plausible-*looking* SDR
+  numbers that were actually meaningless. This isn't something alignment
+  or scoring can fix; it's a property of how the source release was
+  exported. `aggregate_results.py` automatically excludes a song that
+  fails this check from its averages — but only once a song's been
+  checked once; don't assume a new song is fine just because it runs
+  without erroring.
+
+Re-running is cheap: already-separated models are reused automatically
+(pass `--force` to redo them).
 
 ### 7. Regenerate the cross-song leaderboard
 

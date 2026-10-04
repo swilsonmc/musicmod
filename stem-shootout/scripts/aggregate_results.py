@@ -14,31 +14,54 @@ from __future__ import annotations
 import argparse
 import json
 import statistics
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).parent))
+from common import gain_staging_ratio, load_audio  # noqa: E402
+
 STEMS = ["vocals", "drums", "bass", "other", "instrumental"]
+GAIN_RATIO_BOUNDS = (0.4, 2.0)  # see common.py's gain_staging_ratio docstring
 
 
-def load_all_results(songs_dir: Path) -> dict[str, dict[str, dict]]:
-    """Returns {song_name: {model: {stem: sdr}}}"""
+def check_gain_staging(song_dir: Path, config: dict) -> float | None:
+    """Returns the full_mix/mixdown RMS ratio, or None if it can't be computed
+    (e.g. reference_bucketed/ doesn't exist yet - results.json alone is enough
+    for the rest of this script, but this extra check needs those intermediate
+    files, which a fresh checkout won't have until run_shootout.py runs again)."""
+    full_mix_path = song_dir / "reference_bucketed" / "full_mix.wav"
+    if not full_mix_path.exists():
+        return None
+    mixdown = load_audio(song_dir / config["mixdown"])
+    full_mix = load_audio(full_mix_path)
+    return gain_staging_ratio(mixdown, full_mix)
+
+
+def load_all_results(songs_dir: Path) -> tuple[dict[str, dict[str, dict]], dict[str, float | None]]:
+    """Returns ({song_name: {model: {stem: sdr}}}, {song_name: gain_ratio_or_None})"""
     out = {}
+    ratios = {}
     for song_dir in sorted(songs_dir.iterdir()):
         results_path = song_dir / "results.json"
         config_path = song_dir / "config.json"
         if not results_path.exists() or not config_path.exists():
             continue
-        song_name = json.loads(config_path.read_text())["song_name"]
+        config = json.loads(config_path.read_text())
+        song_name = config["song_name"]
         per_model = {}
         for entry in json.loads(results_path.read_text()):
             per_model[entry["model"]] = {
                 stem: vals["SDR"] for stem, vals in entry["stems"].items()
             }
         out[song_name] = per_model
-    return out
+        ratios[song_name] = check_gain_staging(song_dir, config)
+    return out, ratios
 
 
-def render(all_results: dict[str, dict[str, dict]]) -> str:
-    songs = list(all_results.keys())
+def render(all_results: dict[str, dict[str, dict]], ratios: dict[str, float | None]) -> str:
+    lo, hi = GAIN_RATIO_BOUNDS
+    unreliable = {s for s, r in ratios.items() if r is not None and not (lo <= r <= hi)}
+    songs = [s for s in all_results if s not in unreliable]
     models = sorted({m for song in all_results.values() for m in song})
 
     lines = ["# Cross-song leaderboard", "",
@@ -76,6 +99,28 @@ def render(all_results: dict[str, dict[str, dict]]) -> str:
         "A model missing a row for a given stem means it doesn't produce that "
         "stem at all (e.g. a 2-stem vocal/instrumental model has no drums/bass/other row)."
     )
+
+    if unreliable:
+        lines.append("")
+        lines.append("## Excluded from the averages above")
+        lines.append("")
+        for song in sorted(unreliable):
+            lines.append(
+                f"- **{song}** (full_mix/mixdown RMS ratio {ratios[song]:.2f}, outside "
+                f"the {lo}-{hi} plausible range) — its raw multitrack files aren't "
+                f"gain-staged consistently with the mixdown, so SDR numbers from this "
+                f"song aren't comparable to the others even though scoring runs "
+                f"without error. See `common.py`'s `gain_staging_ratio` docstring and "
+                f"that song's `config.json` for what's known about why."
+            )
+    skipped_no_check = [s for s, r in ratios.items() if r is None and s in all_results]
+    if skipped_no_check:
+        lines.append("")
+        lines.append(
+            f"(Gain-staging couldn't be checked for {', '.join(sorted(skipped_no_check))} — "
+            f"their `reference_bucketed/` intermediate files don't exist locally. Re-run "
+            f"`run_shootout.py` for them, then regenerate this leaderboard, to get that check.)"
+        )
     return "\n".join(lines)
 
 
@@ -85,8 +130,8 @@ def main() -> None:
     ap.add_argument("--output", type=Path, default=Path(__file__).parent.parent / "LEADERBOARD.md")
     args = ap.parse_args()
 
-    all_results = load_all_results(args.songs_dir)
-    report = render(all_results)
+    all_results, ratios = load_all_results(args.songs_dir)
+    report = render(all_results, ratios)
     args.output.write_text(report)
     print(report)
 

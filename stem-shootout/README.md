@@ -21,74 +21,90 @@ ground-truth separated audio for a commercially produced track. The plan:
 
 ## Status: results are in
 
-The harness has been run end to end against all 3 real songs, comparing
-`htdemucs_ft.yaml` and `htdemucs.yaml` (Demucs v4) against
-`melband_roformer_instvox_duality_v2.ckpt` (a dedicated vocal/instrumental
-Mel-Band-Roformer). All on CPU — no GPU in the environment this ran in.
+The harness has been run end to end against all 4 real songs, comparing
+two Demucs v4 variants (`htdemucs_ft.yaml`, `htdemucs.yaml`) against two
+dedicated vocal/instrumental models of different architectures
+(`melband_roformer_instvox_duality_v2.ckpt`, `Kim_Vocal_2.onnx` — a
+Mel-Band-Roformer and an MDX-Net model respectively). All on CPU — no GPU
+in the environment this ran in.
 
 ### Results
 
-SDR in dB, higher is better (median across 1s windows). Full ISR/SIR/SAR
-breakdown is in each song's `results.json`.
+The full per-song tables are in each song's own `results.md`/`results.json`
+(ISR/SIR/SAR included, not just SDR). **[`LEADERBOARD.md`](./LEADERBOARD.md)**
+is the cross-song view and the one worth reading first — it's what
+actually revealed the nuances below; a single song's table alone would
+have supported a simpler (and partly wrong) story. Regenerate it with
+`python scripts/aggregate_results.py` after adding a song or model.
 
-**Discipline** (dense industrial mix, hardest case in the set):
-| Model | vocals | drums | bass | other | instrumental |
-|---|---|---|---|---|---|
-| htdemucs_ft.yaml | -3.01 | **4.00** | **2.02** | -3.65 | — |
-| htdemucs.yaml | -3.55 | 3.91 | 1.62 | **-3.03** | — |
-| melband_roformer (vocal spec.) | **-2.83** | — | — | — | 2.84 |
-
-**Nude** (sparse arrangement, easiest case):
-| Model | vocals | drums | bass | other | instrumental |
-|---|---|---|---|---|---|
-| htdemucs_ft.yaml | 6.44 | **6.72** | **10.16** | **8.33** | — |
-| htdemucs.yaml | 6.30 | 6.68 | 9.97 | 8.02 | — |
-| melband_roformer (vocal spec.) | **7.07** | — | — | — | 9.30 |
-
-**A Light That Never Comes** (dual lead+BG vocal harmony):
-| Model | vocals | drums | bass | other | instrumental |
-|---|---|---|---|---|---|
-| htdemucs_ft.yaml | 6.35 | 12.72 | 0.00 | 0.63 | — |
-| htdemucs.yaml | 6.29 | **13.34** | 0.01 | **1.33** | — |
-| melband_roformer (vocal spec.) | **11.60** | — | — | — | **18.63** |
+**Perth (Bon Iver) is excluded from the leaderboard averages** — not
+because the models did badly on it, but because its reference itself
+isn't trustworthy: the raw multitrack files weren't gain-staged
+consistently with the mixdown (confirmed automatically — see
+`common.py`'s `gain_staging_ratio`, and the real bug/finding story below).
+It's still in the catalog for the variety and the tooling it drove.
 
 ### What this actually tells us
 
-- **For vocal isolation specifically, the dedicated Roformer model wins
-  on every single song** — by a small margin on Discipline and Nude
-  (+0.2 to +0.6dB), and by a huge one on A Light That Never Comes
-  (+5.25dB) — exactly the song with a real lead+backing-vocal harmony
-  mix, which is the use case this project cares most about for the
-  "replace the vocal" feature. **Recommendation: use a dedicated
-  vocal/instrumental Roformer or MDX-Net model specifically for vocal
-  extraction**, not Demucs's bundled vocals output.
-- **For the full 4-stem split** (needed for per-instrument editing),
-  Demucs is the only architecture tested here that does it at all.
-  `htdemucs_ft` edges out the base model on most stems/songs, but not
-  universally (base `htdemucs` wins on A Light That Never Comes' drums,
-  1.33 vs 0.63 on "other") — the fine-tuning benefit is real but small,
-  not the dramatic jump its published benchmark numbers alone would
-  suggest, and not worth its ~4x runtime cost if drums/bass is what you
-  need most.
-- **Bass and "other" are the weak link across the board**, and
-  song-dependent to an extent that matters: near-zero SDR on A Light That
-  Never Comes' bass/other (both Demucs variants), but solidly positive
-  (8-10dB) on Nude's. Density and mastering seem to matter more than
-  genre here — Discipline (real mastered commercial mix) and A Light That
-  Never Comes (synthetic sum, but a dense EDM/rock production) were both
-  harder than Nude (synthetic sum of a deliberately sparse arrangement).
-- **Negative SDR values (Discipline's vocals/other) are a real signal,
-  not a bug** — confirmed by `smoke_test.py` using correctly-signed
-  synthetic data. They mean the estimate's noise/interference outweighs
-  correctly-recovered signal power, which is a genuinely hard case to
-  separate, not a scoring artifact.
+This went through more than one round of "that's surprising — is it
+real?" before landing here, and the findings changed shape as more
+songs and a bug fix came in. Trust the final shape, not an earlier draft
+of it (including an earlier draft of this very file):
 
-**Practical takeaway for the rest of the project**: don't commit to one
-model. Use the Roformer vocal specialist when the goal is isolating or
-replacing vocals, and Demucs (`htdemucs_ft` as the default, `htdemucs` as
-the faster fallback) when a full instrument-by-instrument breakdown is
-needed. This is a "pick the right tool per job" result the shootout
-earned with real numbers, not a guess.
+- **No single model wins at everything, and averaging across songs
+  changed the conclusion, not just the margin.** Looking at vocals in
+  isolation on the first 3 songs, it looked like "always use the
+  dedicated vocal model, Demucs's bundled vocals output is worse." The
+  4-song average is messier and more interesting:
+  - **Vocals**: Roformer wins on average (5.28dB), but **Kim_Vocal_2 — a
+    second dedicated vocal model — actually comes in *last*** (2.96dB,
+    behind both Demucs variants). "Use a dedicated vocal model" isn't
+    enough of a rule; which one matters as much as whether.
+  - **Instrumental**: Kim_Vocal_2 wins on average (10.69dB vs. Roformer's
+    10.26dB) — the same model that's worst at isolating pure vocals is
+    *best* at isolating everything-but-vocals. A model's SDR on one
+    output doesn't predict its SDR on the other.
+  - **Drums/bass/other**: only the Demucs variants were tested here. The
+    base `htdemucs.yaml` beats the fine-tuned `htdemucs_ft.yaml` on
+    average for drums (7.98 vs 7.81dB) and other (2.11 vs 1.77dB);
+    `htdemucs_ft` wins bass, but narrowly (4.06 vs 3.87dB). Fine-tuning
+    helps vocals a bit more clearly (3.26 vs 3.01dB average) but is a
+    wash-to-slightly-worse everywhere else. At ~4x the runtime cost,
+    that's not a clearly-justified default if drums/bass/other matter
+    more to you than vocals.
+- **Discipline (the one song with a real, independently-mastered
+  commercial mixdown, not a synthetic sum) is hard for every model** —
+  negative SDR on vocals for all four. That's a real, confirmed signal
+  (verified with correctly-signed synthetic data in `smoke_test.py`), not
+  a scoring bug: dense, synth-heavy industrial production seems to be a
+  genuinely harder separation problem than anything else in this catalog,
+  across every architecture tested so far.
+- **A real bug was found and fixed mid-shootout, and it's worth knowing
+  the shape of it**: `Kim_Vocal_2.onnx`'s own filename contains "vocal",
+  which used to make its *instrumental* output also match the "vocals"
+  canonicalization pattern — both outputs raced to become `vocals.wav`,
+  and one silently overwrote the other. The first run's numbers looked
+  completely plausible and would have been reported as real findings.
+  Caught by checking, not by anything looking obviously wrong. Fixed in
+  `separate.py`, with a permanent regression test in `smoke_test.py`.
+- **A second real issue, not a bug**: Bon Iver's Perth stems produced
+  plausible-looking SDR numbers for every model that turned out to be
+  meaningless — the raw tracks simply weren't exported at mix-faithful
+  gain levels (bass alone summed to 195% of the mixdown's RMS). Nothing
+  in the scoring pipeline could have caught this by erroring; it needed
+  a dedicated sanity check (`gain_staging_ratio`), which now runs
+  automatically on every song and flags anything outside a plausible
+  range — including automatically excluding it from
+  `aggregate_results.py`'s averages.
+
+**Practical takeaway for the rest of the project**: pick per-stem, not
+per-song-vibes, and re-check this conclusion once more songs are added —
+a 4-song sample (3 reliable) is enough to overturn a 3-song conclusion
+once already; it can again. For now: Roformer for vocal isolation/
+replacement, Kim_Vocal_2 for instrumental-only needs (karaoke-style
+backing tracks), Demucs for the full 4-stem split with `htdemucs` (the
+cheaper one) as the default rather than `htdemucs_ft` — its extra cost
+isn't earning its keep on this evidence.
 
 ## The song catalog (`data/songs/`)
 
@@ -190,6 +206,24 @@ longer than the album cut), scores each model, and writes
   staging routinely produces peaks above 0dBFS (Nude's raw sum peaked at
   +2.5dB) — 16-bit PCM would silently hard-clip that into real distortion
   before a single model even runs.
+- **Why match only the parenthesized stem label, not the whole output
+  filename?** audio-separator names output `<input>_(<StemLabel>)_<model>.<ext>`.
+  Matching the whole filename is a real bug that bit this project:
+  `Kim_Vocal_2.onnx`'s own model name contains "vocal", so its
+  instrumental output also matched the "vocals" pattern and silently
+  overwrote the real vocals file — caught by checking the manifest, not
+  by anything erroring. `scripts/separate.py`'s `canonicalize()` now
+  matches only the label, and `canonicalize_outputs()` hard-fails if two
+  outputs ever collide on one bucket again instead of silently clobbering.
+- **Why check a gain-staging ratio at all?** Summing raw multitrack files
+  only reconstructs something mix-like if those files were exported at
+  levels that reflect their real contribution to the mix. Bon Iver's
+  "Perth" stems weren't — every bucket's raw sum was wildly out of
+  proportion to the real mixdown (bass alone hit 195% of its RMS) — and
+  every model still produced plausible-looking SDR numbers against that
+  reference, which were actually meaningless. `common.py`'s
+  `gain_staging_ratio` catches this automatically now, and
+  `aggregate_results.py` excludes a song that fails it from its averages.
 
 ## Utility scripts for adding new songs
 

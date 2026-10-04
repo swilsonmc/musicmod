@@ -14,7 +14,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from common import apply_offset, best_offset, load_audio, save_audio
+from common import apply_offset, best_offset, gain_staging_ratio, load_audio, save_audio
 
 BUCKETS = ["vocals", "drums", "bass", "other"]
 
@@ -41,6 +41,17 @@ def main() -> None:
         print("[align] WARNING: offset is within 10s of the 90s search window edge — "
               "the true offset may be outside that window, or this may be the wrong pair",
               file=sys.stderr)
+
+    ratio = gain_staging_ratio(mixdown, full_mix)
+    print(f"[align] full_mix/mixdown RMS ratio: {ratio:.2f} (expect roughly 0.4-2.0)",
+          file=sys.stderr)
+    if not (0.4 <= ratio <= 2.0):
+        print("[align] WARNING: ratio is well outside the plausible range — the raw "
+              "tracks probably aren't gain-staged consistently with the mixdown (seen "
+              "on a real release: tracks exported 'flat' for a remix contest, not at "
+              "mix-faithful levels). SDR numbers from this song's reference may not "
+              "be meaningful even if alignment and scoring run without error — see "
+              "common.py's gain_staging_ratio docstring.", file=sys.stderr)
 
     for bucket in BUCKETS:
         path = args.reference_dir / f"{bucket}.wav"

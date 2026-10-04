@@ -40,7 +40,8 @@ metric from the SiSEC/MDX separation challenges), instead of just
 listening and guessing.
 
 The test catalog (see [`stem-shootout/README.md`](./stem-shootout/README.md)
-for the full writeup of each):
+for the full writeup of each, and [`LEADERBOARD.md`](./stem-shootout/LEADERBOARD.md)
+for the cross-song results):
 
 - **Nine Inch Nails — "Discipline"** (*The Slip*, CC-licensed) — real
   official mixdown *and* real official multitrack stems, including 2
@@ -50,6 +51,19 @@ for the full writeup of each):
 - **Linkin Park & Steve Aoki — "A Light That Never Comes"** — 8 official
   stems with separate lead and backing vocal tracks, the clearest
   vocal-harmony test case in the set.
+- **Bon Iver — "Perth"** — official stems from the 2012 "Stems Project,"
+  pulled out of a ~2GB full-album zip without downloading the rest. Kept
+  in the catalog for variety and the tooling it drove, but excluded from
+  the leaderboard averages — its raw tracks turned out not to be
+  gain-staged consistently with the mixdown, a real finding documented
+  in detail in `stem-shootout/README.md`.
+
+Results so far aren't a one-model answer: the best model for isolating
+vocals is not the best model for everything-but-vocals, and for the full
+4-stem split, Demucs's cheaper base model currently beats its own
+fine-tuned variant on 2 of 3 stems. See `stem-shootout/README.md`'s
+"What this actually tells us" for the full picture, including a real bug
+that was found and fixed mid-shootout.
 
 Test audio is downloaded locally and never committed to this repo (see
 `.gitignore`) — some of it is ordinary copyrighted commercial material

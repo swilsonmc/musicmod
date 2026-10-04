@@ -76,5 +76,23 @@
     },
     "note": null,
     "model": "melband_roformer_instvox_duality_v2.ckpt"
+  },
+  {
+    "stems": {
+      "vocals": {
+        "SDR": 5.702592847810916,
+        "ISR": 8.520888436433465,
+        "SIR": 6.7986718146395075,
+        "SAR": 6.993874939503929
+      },
+      "instrumental": {
+        "SDR": 9.344633249804293,
+        "ISR": 8.282709753121315,
+        "SIR": 29.210920858075852,
+        "SAR": 15.64020995889395
+      }
+    },
+    "note": null,
+    "model": "Kim_Vocal_2.onnx"
   }
 ]

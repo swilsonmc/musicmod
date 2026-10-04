@@ -18,7 +18,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from common import apply_offset, best_offset, load_audio, save_audio
 from score import build_reference_set, score_model
 from separate import run_model
 
@@ -32,7 +31,11 @@ def ensure_aligned_reference(config: dict, song_dir: Path) -> Path:
         print(f"[shootout] reusing existing aligned reference at {aligned_dir}", file=sys.stderr)
         return aligned_dir
 
-    from bus_reference import main as bus_main  # local import, only needed on first run
+    # Local imports, only needed on first run — and run as their own CLIs
+    # (via sys.argv) rather than reimplementing their logic here, so the
+    # alignment sanity checks (offset plausibility, gain-staging ratio)
+    # only exist in one place and can't drift out of sync between them.
+    from bus_reference import main as bus_main
     sys.argv = [
         "bus_reference.py",
         "--raw-dir", str(reference_raw),
@@ -41,15 +44,14 @@ def ensure_aligned_reference(config: dict, song_dir: Path) -> Path:
     ]
     bus_main()
 
-    mixdown = load_audio(song_dir / config["mixdown"])
-    full_mix = load_audio(reference_dir / "full_mix.wav")
-    offset = best_offset(reference=mixdown, target=full_mix)
-    print(f"[shootout] reference/mixdown offset: {offset} samples "
-          f"({offset / 44100:.2f}s)", file=sys.stderr)
-
-    for bucket in ("vocals", "drums", "bass", "other"):
-        aligned = apply_offset(load_audio(reference_dir / f"{bucket}.wav"), offset)
-        save_audio(aligned_dir / f"{bucket}.wav", aligned)
+    from align import main as align_main
+    sys.argv = [
+        "align.py",
+        "--mixdown", str(song_dir / config["mixdown"]),
+        "--reference-dir", str(reference_dir),
+        "--output-dir", str(aligned_dir),
+    ]
+    align_main()
 
     return aligned_dir
 

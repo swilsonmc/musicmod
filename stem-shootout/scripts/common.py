@@ -84,6 +84,29 @@ def best_offset(reference: np.ndarray, target: np.ndarray, max_lag_seconds: floa
     return best_index - zero_lag_index
 
 
+def gain_staging_ratio(mixdown: np.ndarray, full_mix: np.ndarray) -> float:
+    """RMS(full_mix) / RMS(mixdown) — how the summed raw multitrack buckets
+    compare in level to the real mixdown, as a sanity check that the raw
+    tracks are actually gain-staged consistently with the final mix.
+
+    Found by testing: this should land roughly in [0.4, 2.0] even allowing
+    for mastering/limiting differences and (for a synthetic mixdown) the
+    peak-normalization applied when building it. A raw multitrack release
+    can fail this silently and still "work" mechanically — Bon Iver's
+    Perth stems produced plausible-looking SDR numbers for every model
+    that were actually meaningless, because EVERY bucket's raw sum was
+    wildly out of proportion to the mixdown (bass alone summed to 195% of
+    the mixdown's RMS) — the tracks simply weren't exported at mix-
+    faithful gain levels. That's a property of the source release, not
+    something alignment or scoring can fix; the result is only useful as
+    a loud warning to not trust this song's numbers, not as a bug to patch.
+    """
+    n = min(len(mixdown), len(full_mix))
+    mix_rms = float(np.sqrt(np.mean(mixdown[:n].astype("float64") ** 2)))
+    full_rms = float(np.sqrt(np.mean(full_mix[:n].astype("float64") ** 2)))
+    return full_rms / (mix_rms + 1e-12)
+
+
 def peak_normalize(data: np.ndarray, target_peak: float = 0.98) -> np.ndarray:
     """Scale so the loudest sample hits target_peak.
 

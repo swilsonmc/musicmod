@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).parent))
-from common import apply_offset, best_offset, load_audio, save_audio  # noqa: E402
+from common import apply_offset, load_audio, match_length, save_audio  # noqa: E402
 from score import build_reference_set, score_model  # noqa: E402
 from separate import canonicalize_outputs  # noqa: E402
 
@@ -78,18 +78,26 @@ def main() -> None:
     from bus_reference import main as bus_main
     bus_main()
 
-    measured_offset = best_offset(reference=load_audio(TMP / "mixdown.wav"),
-                                   target=load_audio(reference_dir / "full_mix.wav"))
-    # mixdown was built by delaying full_mix, i.e. full_mix (the target) LEADS
-    # mixdown (the reference) — so the expected signed offset is negative.
-    expected_offset = -injected_offset
-    print(f"[smoke] injected offset={injected_offset}, expected measured={expected_offset}, "
-          f"actual measured={measured_offset}")
-    assert abs(measured_offset - expected_offset) <= 2, "alignment is off by more than 2 samples"
+    # Run align.py's real CLI rather than reimplementing its logic inline —
+    # a hand-rolled stand-in here previously diverged from the real
+    # manifest-handling code and masked a path bug; the same risk applies
+    # to alignment logic, so drive it the same way run_shootout.py does.
+    sys.argv = ["align.py", "--mixdown", str(TMP / "mixdown.wav"),
+                "--reference-dir", str(reference_dir), "--output-dir", str(aligned_dir)]
+    from align import main as align_main
+    align_main()
 
-    for bucket in ("vocals", "drums", "bass", "other"):
-        aligned = apply_offset(load_audio(reference_dir / f"{bucket}.wav"), measured_offset)
-        save_audio(aligned_dir / f"{bucket}.wav", aligned)
+    # mixdown was built by delaying full_mix, i.e. full_mix (the target) LEADS
+    # mixdown (the reference) — so the true content of each bucket, as it
+    # should appear once aligned to the mixdown's timeline, is that bucket
+    # delayed by injected_offset — exactly how mixdown itself was built from
+    # full_mix. Check the aligned output actually matches that, rather than
+    # just trusting whatever align.py printed.
+    expected_vocals = apply_offset(stems["vocals"], -injected_offset)
+    aligned_vocals, expected_vocals = match_length(
+        load_audio(aligned_dir / "vocals.wav"), expected_vocals)
+    assert np.allclose(aligned_vocals, expected_vocals, atol=1e-5), \
+        "aligned vocals.wav doesn't match the known-correct shifted reference"
 
     # Write fake "separator output" with the same kind of filenames
     # audio-separator itself produces, then run it through the real

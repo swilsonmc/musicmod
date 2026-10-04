@@ -5,5 +5,6 @@
 | htdemucs_ft.yaml | -3.01 | 4.00 | 2.02 | -3.65 | — |
 | htdemucs.yaml | -3.55 | 3.91 | 1.62 | -3.03 | — |
 | melband_roformer_instvox_duality_v2.ckpt | -2.83 | — | — | — | 2.84 |
+| Kim_Vocal_2.onnx | -4.48 | — | — | — | 2.82 |
 
 SDR in dB, higher is better. Full SDR/ISR/SIR/SAR breakdown is in results.json.
