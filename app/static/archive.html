@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>musicmod — archive</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+  nav a { margin-right: 1rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
+  .status-pending, .status-processing { color: #946200; }
+  .status-error { color: #b00020; }
+  .status-done { color: #1a7f37; }
+</style>
+</head>
+<body>
+  <nav><a href="/">Player</a><a href="/archive">Archive</a></nav>
+  <h1>musicmod — every separation attempted</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>File</th><th>Size</th><th>Status</th>
+        <th>Started</th><th>Finished</th><th>Took</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="archive-body"></tbody>
+  </table>
+
+  <script src="/static/format.js"></script>
+  <script src="/static/archive.js"></script>
+</body>
+</html>

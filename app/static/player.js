@@ -5,6 +5,7 @@ const fileInput = document.getElementById('file-input');
 
 let tracks = {}; // stem_name -> { wavesurfer, muted, soloed, volume }
 let pollTimer = null;
+let tickTimer = null;
 
 async function fetchUploads() {
   const res = await fetch('/api/uploads');
@@ -32,34 +33,79 @@ async function refreshList(selectedId) {
   return uploads;
 }
 
-function stopPolling() {
+function stopTimers() {
   if (pollTimer) clearInterval(pollTimer);
+  if (tickTimer) clearInterval(tickTimer);
   pollTimer = null;
+  tickTimer = null;
+}
+
+function metaRow(upload, extra = '') {
+  return `
+    <dl class="status-box-dl">
+      <dt>File</dt><dd>${escapeHtml(upload.original_filename)} (${formatBytes(upload.file_size_bytes)})</dd>
+      <dt>Started</dt><dd>${formatTime(upload.started_at)}</dd>
+      ${extra}
+    </dl>`;
 }
 
 async function selectUpload(id) {
-  stopPolling();
+  stopTimers();
+  history.replaceState(null, '', `?upload=${id}`);
   const uploads = await refreshList(id);
   const upload = uploads.find((u) => u.id === id);
   if (!upload) return;
 
   if (upload.status === 'pending' || upload.status === 'processing') {
-    playerDiv.innerHTML = '<p>Separating stems — this can take a few minutes on CPU…</p>';
+    renderInProgress(upload);
     pollTimer = setInterval(() => selectUpload(id), 3000);
     return;
   }
   if (upload.status === 'error') {
-    playerDiv.innerHTML = `<p class="status-error">Failed: ${upload.error}</p>`;
+    playerDiv.innerHTML = `
+      <div class="status-box">
+        ${metaRow(upload, `<dt>Failed</dt><dd>${formatTime(upload.finished_at)}</dd>`)}
+        <p class="status-error">${escapeHtml(upload.error)}</p>
+      </div>`;
     return;
   }
 
   const detail = await fetch(`/api/uploads/${id}`).then((r) => r.json());
-  buildPlayer(detail);
+  renderDone(detail);
 }
 
-function buildPlayer(upload) {
+function renderInProgress(upload) {
+  playerDiv.innerHTML = `
+    <div class="status-box">
+      ${metaRow(upload)}
+      <p><strong>What's happening:</strong> <span id="progress-text">${escapeHtml(upload.progress || 'Waiting to start…')}</span></p>
+      <p>Elapsed: <span id="elapsed-text">—</span></p>
+    </div>`;
+
+  const startedAt = upload.started_at ? new Date(upload.started_at) : null;
+  const elapsedEl = document.getElementById('elapsed-text');
+  const tick = () => {
+    elapsedEl.textContent = startedAt ? formatDuration(Date.now() - startedAt) : 'not started yet';
+  };
+  tick();
+  tickTimer = setInterval(tick, 1000);
+}
+
+function renderDone(upload) {
   playerDiv.innerHTML = '';
   tracks = {};
+
+  const durationMs = (upload.started_at && upload.finished_at)
+    ? new Date(upload.finished_at) - new Date(upload.started_at)
+    : null;
+
+  const summary = document.createElement('div');
+  summary.className = 'status-box';
+  summary.innerHTML = metaRow(upload, `
+    <dt>Finished</dt><dd>${formatTime(upload.finished_at)}</dd>
+    <dt>Took</dt><dd>${formatDuration(durationMs)}</dd>
+  `);
+  playerDiv.appendChild(summary);
 
   for (const [stemName, url] of Object.entries(upload.stems)) {
     const track = document.createElement('div');
@@ -95,7 +141,7 @@ function buildPlayer(upload) {
       url,
     });
 
-    tracks[stemName] = { wavesurfer, muted: false, soloed: false };
+    tracks[stemName] = { wavesurfer, muted: false, soloed: false, volume: 1 };
 
     muteBtn.onclick = () => {
       tracks[stemName].muted = !tracks[stemName].muted;
@@ -111,7 +157,6 @@ function buildPlayer(upload) {
       tracks[stemName].volume = parseFloat(volume.value);
       applyMix();
     };
-    tracks[stemName].volume = 1;
   }
 
   const playAllBtn = document.createElement('button');
@@ -120,8 +165,7 @@ function buildPlayer(upload) {
   const stopAllBtn = document.createElement('button');
   stopAllBtn.textContent = 'Stop all';
   stopAllBtn.onclick = () => Object.values(tracks).forEach((t) => t.wavesurfer.stop());
-  playerDiv.prepend(stopAllBtn);
-  playerDiv.prepend(playAllBtn);
+  playerDiv.append(playAllBtn, stopAllBtn);
 }
 
 function applyMix() {
@@ -144,4 +188,9 @@ form.onsubmit = async (e) => {
   await selectUpload(id);
 };
 
-refreshList(null);
+const initialId = new URLSearchParams(location.search).get('upload');
+if (initialId) {
+  selectUpload(Number(initialId));
+} else {
+  refreshList(null);
+}

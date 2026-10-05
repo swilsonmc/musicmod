@@ -10,7 +10,11 @@ CREATE TABLE IF NOT EXISTS uploads (
     stored_dir VARCHAR(255) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     error TEXT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    file_size_bytes BIGINT NULL,
+    progress VARCHAR(255) NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP NULL,
+    finished_at TIMESTAMP NULL
 );
 
 CREATE TABLE IF NOT EXISTS stems (
@@ -21,6 +25,17 @@ CREATE TABLE IF NOT EXISTS stems (
     FOREIGN KEY (upload_id) REFERENCES uploads(id)
 );
 """
+
+# This MySQL version (8.0.46) rejects `ADD COLUMN IF NOT EXISTS` as a syntax
+# error outright, so columns added after the table already existed on this
+# machine are applied by catching "duplicate column" (1060) instead.
+ADD_COLUMNS = [
+    "ALTER TABLE uploads ADD COLUMN file_size_bytes BIGINT NULL",
+    "ALTER TABLE uploads ADD COLUMN progress VARCHAR(255) NULL",
+    "ALTER TABLE uploads ADD COLUMN started_at TIMESTAMP NULL",
+    "ALTER TABLE uploads ADD COLUMN finished_at TIMESTAMP NULL",
+]
+DUPLICATE_COLUMN_ERRNO = 1060
 
 
 def get_connection():
@@ -41,5 +56,11 @@ def init_schema() -> None:
             for statement in SCHEMA.strip().split(";"):
                 if statement.strip():
                     cur.execute(statement)
+            for statement in ADD_COLUMNS:
+                try:
+                    cur.execute(statement)
+                except pymysql.err.OperationalError as exc:
+                    if exc.args[0] != DUPLICATE_COLUMN_ERRNO:
+                        raise
     finally:
         conn.close()

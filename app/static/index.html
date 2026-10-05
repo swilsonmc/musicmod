@@ -16,9 +16,15 @@
   .track { border: 1px solid #ddd; border-radius: 6px; padding: 0.5rem; margin-bottom: 0.75rem; }
   .track-controls { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; }
   .track-controls span { width: 70px; font-weight: 600; text-transform: capitalize; }
+  .status-box { border: 1px solid #ddd; border-radius: 6px; padding: 0.75rem 1rem; margin-bottom: 1rem; }
+  .status-box dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 0.75rem; margin: 0.5rem 0 0; }
+  .status-box dt { font-weight: 600; }
+  .status-box dd { margin: 0; }
+  nav a { margin-right: 1rem; }
 </style>
 </head>
 <body>
+  <nav><a href="/">Player</a><a href="/archive">Archive</a></nav>
   <h1>musicmod — stem player</h1>
 
   <form id="upload-form">
@@ -32,6 +38,7 @@
   <h2>Player</h2>
   <div id="player"></div>
 
+  <script src="/static/format.js"></script>
   <script src="/static/player.js"></script>
 </body>
 </html>
