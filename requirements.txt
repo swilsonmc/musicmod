@@ -1,0 +1,10 @@
+# Phase 2 backend (FastAPI). Phase 1's stem-shootout deps are still needed —
+# this app reuses its separate.py directly, see app/separation.py.
+-r stem-shootout/requirements.txt
+
+fastapi
+uvicorn[standard]
+python-multipart
+python-dotenv
+PyMySQL
+audioread  # audio-separator's librosa path needs this; not pulled in automatically

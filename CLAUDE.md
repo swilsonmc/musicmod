@@ -27,6 +27,12 @@ Load `.env` relative to that path, not relative to this repo — the two
 directories are siblings only by convention (both named `musicmod`), not
 nested.
 
+## System dependencies
+
+`ffmpeg` must be installed system-wide (`sudo apt install ffmpeg`) —
+`audio-separator` shells out to it directly and fails without it on PATH.
+Not pip-installable; it's a system package, not a Python one.
+
 ## Python environment
 
 Own venv at `musicmod/venv/` (gitignored, not shared with the other two
