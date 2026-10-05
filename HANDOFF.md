@@ -1,8 +1,10 @@
-> **Local setup is done** (2026-10-04) — this repo now lives at
-> `/var/www/musicmod` with its own venv, a `musicmod_dev` MySQL database, and
-> secrets/storage at `/var/www/projects/musicmod/` (outside this repo). See
-> `CLAUDE.md` in this directory for the current setup instead of redoing the
-> steps below from scratch.
+> **Where things stand (2026-10-05):** development moved to the owner's
+> local machine on 2026-10-04 and Phase 2's first slice is working there —
+> see "Phase 2 status" and "Next research task" near the end of this file.
+> **Two sessions now push to this branch** (the local machine and a cloud
+> session): `git pull` before starting work, and push what you finish so
+> the other side can see it. The local-setup steps immediately below are
+> historical; `CLAUDE.md` describes the current local setup.
 
 # musicmod — project handoff
 
@@ -411,3 +413,152 @@ Phase 1's job (pick a model with evidence, not a guess) is done. Next:
    permanent conclusion. If phase 2 surfaces real-world cases that don't
    match it, that's a legitimate reason to add more songs to the
    shootout and re-check, not to quietly override it on a hunch.
+
+## Phase 2 status — first slice working (2026-10-05)
+
+Steps 1–3 of "Next steps — phase 2" above are done and running on the
+target laptop: upload → two-model separation (Roformer for vocals, base
+`htdemucs.yaml` for drums/bass/other) → multitrack player with
+mute/solo/volume. Also built: live progress (model, percent, chunks,
+elapsed time), start/finish times and file size per upload, an archive
+page of every attempt, and a systemd user service started and stopped by
+hand from a dashboard button. Code: `app/` (backend + static frontend),
+`deploy/` (service units). Running it: `README.md` and `CLAUDE.md`.
+
+Deliberate departures from the architecture above:
+
+- **No Celery/RQ + Redis yet.** FastAPI's built-in background tasks plus
+  an in-process lock that runs one separation at a time. One user, one
+  CPU-bound job at a time — a queue service would add infrastructure
+  without changing anything. Revisit if jobs need to survive a server
+  restart (today a restart cancels the running job, and startup marks it
+  interrupted) or run on a different machine.
+- **Frontend is plain HTML/JS** with WaveSurfer.js v7 from a CDN, one
+  instance per stem. No build step.
+
+### Measured speed on the target laptop (Intel i3-6100U, 2 cores, no usable GPU)
+
+| Song | Length | Separation time | Ratio |
+|---|---|---|---|
+| Morrissey — "Mr Shankley" | 2:21 | 39 min 31 s (Roformer 33:30, Demucs 6:01) | ~17× |
+| 10,000 Maniacs — "Noah's Dove" | 4:34 | 81 min 7 s | ~18× |
+
+Roughly 17–18 minutes per minute of music, ~85% of it the Roformer.
+
+### Problems found by running it for real (all fixed — listed so nobody re-hits them)
+
+1. **PyTorch's GPU build installs by default** even via
+   `audio-separator[cpu]`: 6.1 GB venv with ~5 GB of CUDA libraries that
+   can't run on an Intel iGPU. Install torch from the CPU index first
+   (1.7 GB venv).
+2. **`audioread` is needed but not declared** by audio-separator's
+   dependency chain; it's in `requirements.txt` now.
+3. **`ffmpeg` is a system package** audio-separator shells out to; pip
+   can't provide it.
+4. **`separate.py` runs the bare `audio-separator` command**, so whatever
+   launches the server must put the venv's `bin/` first on `PATH` — the
+   systemd unit does.
+5. **The model cache defaulted to `/tmp`**, which reboots wipe — a silent
+   1.7 GB re-download on the first separation after every restart. Now
+   `storage/models/` via `--model_file_dir`.
+6. **Capturing progress swallowed everything else audio-separator
+   printed**, including its error messages, so a failure would have shown
+   only an exit code. Non-progress output now goes to the server log, and
+   the last lines are attached to the upload's error.
+7. **MySQL 8.0.46 rejects `ADD COLUMN IF NOT EXISTS`** — see `app/db.py`
+   for the pattern used instead.
+
+## Next research task: split "other" further (assigned to the cloud session)
+
+### What prompted it
+
+Listening to the "Noah's Dove" output, the owner found piano and guitar
+both inside "other" and wants each as its own stem. The stretch goal is
+Queen's "Bohemian Rhapsody" separated into as many stems as possible —
+its stacked vocal harmonies and many instrument layers. The owner asked
+for this to be researched before anything is built into the app.
+
+### What's available today
+
+From `audio-separator --list_models` (version 0.47.0, checked
+2026-10-05; the model list grows, so re-check):
+
+- **`htdemucs_6s.yaml`** — Demucs v4 with six stems: vocals, drums, bass,
+  **guitar, piano**, other. The only model in that list that splits
+  guitar and piano. Demucs's own README cautions that its piano source
+  "is not working great" — measure before trusting it.
+- **Lead-vs-backing vocal models**, meant to run on an already-isolated
+  vocal stem: `mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt`,
+  `mel_band_roformer_karaoke_gabox.ckpt` / `_v2`,
+  `mel_band_roformer_karaoke_becruily.ckpt`,
+  `bs_roformer_karaoke_frazer_becruily.ckpt`,
+  `bs_roformer_karaoke_anvuew.ckpt`, `UVR_MDXNET_KARA.onnx` / `_2`,
+  `5_HP-Karaoke-UVR.pth`, `6_HP-Karaoke-UVR.pth`; plus backing-vocal
+  extractors `UVR-BVE-4B_SN-44100-1.pth` / `-2`.
+- **Narrow specialists**: `17_HP-Wind_Inst-UVR.pth` (woodwinds), crowd
+  noise models. Nothing in the list targets strings, synths, organ, or
+  individual drum pieces — look beyond audio-separator if that matters.
+
+Two traps: "karaoke" in this community usually means "keep the lead,
+drop the backing vocals," and which output file is which varies by
+model — check each one's actual output labels. And `canonicalize()`'s
+bucket patterns don't know `lead`/`backing`/`guitar`/`piano` yet; extend
+them carefully (bug #4 in Phase 1 was a model *name* colliding with a
+bucket word).
+
+### How to measure it
+
+Keep Phase 1's rule — measured against ground truth, not judged by ear.
+The shootout scores four buckets today; scoring guitar, piano, lead, or
+backing needs songs whose raw multitrack has those as separate tracks.
+
+- `discipline` has 14 raw tracks, including three vocal layers (Lead,
+  BV, Woo Voc) — usable for lead vs backing. Check whether its guitars
+  and keys are separate tracks.
+- `a_light_that_never_comes` has separate `Lead_Vocals` and `BG_Vocals`.
+- `nude` has 5 stems — check what they are.
+- Gap: no song in the catalog yet with clearly separate piano and guitar
+  stems. Finding one is part of the task (see `CONTRIBUTING.md` for
+  searches already tried).
+
+Likely work: 6-bucket (and lead/backing) mappings alongside the existing
+4-bucket ones, `score.py` and `aggregate_results.py` taught about the
+extra buckets, and a leaderboard per new split.
+
+### Realistic limits — set expectations before building
+
+- **Piano vs guitar:** plausible. Separation models work by telling
+  sounds apart by timbre, and those two differ a lot.
+- **Lead vs backing vocals:** plausible to a useful degree; models are
+  trained for exactly this.
+- **Each individual voice in a stacked harmony:** not realistic with
+  current models when the voices sound alike. In "Bohemian Rhapsody"'s
+  operatic section, Freddie Mercury, Brian May, and Roger Taylor each
+  multitracked their own voices many times, and those layers were
+  combined on tape long before the final mix. Separation has little to
+  work with when the parts share a voice, a microphone, and a room, and
+  move together in close harmony. The same applies to Brian May's
+  layered guitar harmonies.
+- Two cheap experiments that could recover *some* of that:
+  1. **Stereo position.** Layers in that section are panned to different
+     places left-to-right; pan-based extraction can pull apart parts the
+     AI models can't.
+  2. **Phase 3's transcription.** Polyphonic pitch transcription of a
+     backing-vocal stem can return each harmony *line* as separate MIDI
+     notes, which Phase 4 can re-render one voice per line — separate
+     parts in the MIDI domain even where the audio can't be unmixed.
+
+### Cost on the target hardware
+
+Each extra model pass adds time at the rates above. A 6-minute song is
+about 100 minutes with today's two models; adding a 6-stem pass on the
+instrumental and a lead/backing pass on the vocals could reach 3–4 hours
+per song. Make any richer pipeline an opt-in choice per upload ("more
+stems, much slower"), not the default.
+
+### Where it plugs into the app
+
+`app/separation.py`'s `separate_upload()` picks the models and maps
+their outputs to stems; model names are in `app/config.py`. The `stems`
+table stores a free-text stem name and the player draws whatever stems
+an upload has, so more stems need no schema or player changes.

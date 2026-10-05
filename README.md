@@ -5,10 +5,12 @@ separation, editable MIDI transcription per stem, swapping instruments or
 vocals, and a non-linear-editor-style multitrack timeline — built to run
 on your own machine, not a cloud service.
 
-**Status: early — Phase 1 of 6.** Nothing playable exists yet. Right now
-this repo holds the harness for picking which AI separation model to
-build everything else on top of, validated against real official
-multitrack recordings rather than guesswork.
+**Status: Phase 2 of 6 — a first working app.** You can upload a song,
+have it separated into vocals / drums / bass / other, and play the stems
+back together with per-stem mute, solo, and volume. Phase 1 — choosing
+which AI separation models to build on, scored against real official
+multitrack recordings instead of guesswork — is done, and its harness is
+still here. Editing, MIDI, and export (phases 3–6) don't exist yet.
 
 ## The idea
 
@@ -27,7 +29,72 @@ multitrack recordings rather than guesswork.
 The full design — architecture decisions, build order, and the reasoning
 behind each one — lives in [`HANDOFF.md`](./HANDOFF.md).
 
-## What's here now: the stem-separation model shootout
+## Phase 2: the app (`app/`)
+
+A small FastAPI web app, served on `http://127.0.0.1:8000` (this machine
+only — nothing is exposed to the network):
+
+- **Upload** a WAV, FLAC, MP3, OGG, or M4A file.
+- **Separation runs two models, not one**, because Phase 1 showed no
+  single model is best at everything: a Mel-Band Roformer vocal specialist
+  (`melband_roformer_instvox_duality_v2.ckpt`) produces the vocals stem,
+  and Demucs v4 (`htdemucs.yaml`) produces drums, bass, and other.
+- **Live progress** while it works — which model is running, percent
+  done, chunk count, and an elapsed clock — because on a CPU this is slow
+  (see timings below). Jobs run one at a time; extras wait in a queue.
+- **A multitrack player**: a waveform per stem, mute / solo / volume on
+  each, play and stop all together.
+- **An archive page** listing every separation ever attempted, with file
+  size, start and finish times, and how long it took.
+
+### How long separation takes without a GPU
+
+Measured on the development laptop — an Intel Core i3-6100U (2 cores,
+2015-era), 11 GB RAM, no graphics card usable for AI:
+
+| Song | Length | Separation time | Ratio |
+|---|---|---|---|
+| Morrissey — "Mr Shankley" | 2:21 | 39 min 31 s | ~17× |
+| 10,000 Maniacs — "Noah's Dove" | 4:34 | 81 min 7 s | ~18× |
+
+So budget roughly **17–18 minutes per minute of music** on similar
+hardware. About 85% of that is the Roformer vocal model; Demucs is much
+faster. A machine with a supported NVIDIA GPU would be dramatically
+faster, but nothing here requires one.
+
+### Running it yourself
+
+Built and tested on Linux (Ubuntu 24.04 family), Python 3.12, MySQL 8.0.
+Paths assume the layout described in [`CLAUDE.md`](./CLAUDE.md) (code in
+`/var/www/musicmod`, secrets and storage in `/var/www/projects/musicmod`);
+change them in `app/config.py` and `deploy/` if yours differ.
+
+1. **System package:** `sudo apt install ffmpeg` — the separation library
+   calls it directly and fails without it.
+2. **Python environment, CPU edition of PyTorch first.** Installing the
+   requirements directly pulls the *GPU* (CUDA) build of PyTorch, about
+   5 GB of graphics-card libraries that do nothing on a machine without an
+   NVIDIA GPU. Installing the CPU build first prevents that:
+   ```bash
+   python3 -m venv venv
+   venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+   venv/bin/pip install -r requirements.txt
+   ```
+3. **Database:** create a MySQL database and a user that can only touch
+   it, then copy `.env.example` to `/var/www/projects/musicmod/.env`
+   (outside the repo) and fill it in. Tables are created automatically
+   on first start.
+4. **Service:** `deploy/install-user-services.sh` installs a systemd
+   *user* service (runs as you, no root needed). It deliberately does
+   **not** start at boot; start and stop it with
+   `systemctl --user start musicmod` / `stop musicmod`, or from a
+   dashboard button (see `CLAUDE.md`). Server output goes to
+   `/var/www/projects/musicmod/storage/logs/server.log`.
+
+The first separation downloads about 1.7 GB of model files, cached in
+`storage/models/` for every run after.
+
+## Phase 1: the stem-separation model shootout
 
 Before building any of the above, [`stem-shootout/`](./stem-shootout/)
 answers a narrower question: **which AI separation model is actually most
@@ -71,12 +138,25 @@ whose *stems* happen to have been officially released for remixing, which
 doesn't make it redistributable. Only the harness code and each song's
 small `config.json`/`reference_mapping.json` are tracked in git.
 
+## What's next: more than four stems?
+
+"Other" is a catch-all: on "Noah's Dove," piano and guitar both land in
+it together. The open research question — written up in detail in
+`HANDOFF.md` — is how far past four stems separation can realistically
+go: piano and guitar apart, lead vocal apart from backing harmonies, and
+(the stretch goal) something like Queen's "Bohemian Rhapsody" split into
+as many layers as the technology allows.
+
 ## Repo layout
 
 ```
-HANDOFF.md               full project vision, architecture decisions, and status log
+HANDOFF.md               full project vision, architecture decisions, status, next tasks
+CLAUDE.md                local-machine setup notes (read automatically by Claude Code)
 CONTRIBUTING.md          how to add a new song to the shootout, and general workflow
 LICENSE                  MIT, for the code in this repo — not for any third-party test audio
+requirements.txt         Python dependencies for the app (includes the shootout's)
+app/                     Phase 2: FastAPI backend + static HTML/JS player and archive pages
+deploy/                  systemd user units + the script that installs them
 stem-shootout/           Phase 1: the model-accuracy validation harness
   LEADERBOARD.md          auto-generated cross-song model comparison (see CONTRIBUTING.md)
   scripts/                 separation runner, reference alignment, museval scoring,

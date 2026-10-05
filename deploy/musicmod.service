@@ -1,0 +1,12 @@
+[Unit]
+Description=musicmod stem separation web app (http://127.0.0.1:8000)
+# No [Install] section on purpose: this never starts at boot or login, only on
+# request (dashboard Start button via musicmod-control.path, or systemctl).
+
+[Service]
+WorkingDirectory=/var/www/musicmod
+# separate.py shells out to the bare `audio-separator` command, so the venv's bin/ must lead PATH.
+Environment=PATH=/var/www/musicmod/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/var/www/musicmod/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+StandardOutput=append:/var/www/projects/musicmod/storage/logs/server.log
+StandardError=inherit

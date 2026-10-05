@@ -15,11 +15,13 @@ Secrets, user uploads, generated audio/MIDI, and backups live outside it, at
 /var/www/musicmod/            this repo — code, public
 /var/www/projects/musicmod/
 ├── .env                      MySQL + LLM API keys, mode 0600 — see .env.example in this repo for the var names
+├── control/                  start/stop request file written by the dashboard (see "Running the server")
 ├── storage/
 │   ├── uploads/               user-submitted songs
 │   ├── stems/                 separated stem output
+│   ├── models/                downloaded AI model files (~1.7 GB; NOT /tmp, which reboots wipe)
 │   ├── midi/                  transcribed/edited MIDI
-│   └── logs/
+│   └── logs/server.log        everything the server and audio-separator print
 └── backups/                  mysqldump output — see /var/www/CLAUDE.md "Backups"
 ```
 
@@ -43,9 +45,11 @@ version-sensitive deps that don't belong growing a shared environment).
 /var/www/musicmod/venv/bin/python
 ```
 
-Install/update deps with that venv's `pip`, from `stem-shootout/requirements.txt`
-for now; a top-level `requirements.txt` will replace it once phase 2's FastAPI
-backend exists.
+Install/update deps with that venv's `pip` from the top-level `requirements.txt`
+(which includes `stem-shootout/requirements.txt`). **Install PyTorch from the
+CPU index first** (`pip install torch torchvision --index-url
+https://download.pytorch.org/whl/cpu`): this laptop has only an Intel iGPU, and
+a plain install pulls the CUDA build — ~5 GB of unusable NVIDIA libraries.
 
 ## Database
 
@@ -53,10 +57,29 @@ MySQL database `musicmod_dev`, scoped user `musicmod_app` (not root — see
 `/var/www/CLAUDE.md` MySQL section for why). Credentials are in `.env`
 (`MYSQL_HOST`/`MYSQL_DATABASE`/`MYSQL_USER`/`MYSQL_PASSWORD`).
 
-## Web tier
+MySQL 8.0.46 here rejects `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` as a
+syntax error; `app/db.py` adds later columns by catching "duplicate column"
+(errno 1060) instead. Follow that pattern for new columns.
 
-None yet. Phase 2's FastAPI backend will serve itself on its own port
-(e.g. `uvicorn` on `127.0.0.1:8000`) rather than running under Apache —
-there's no PHP in this project, and the architecture in `HANDOFF.md`
-assumes a lightweight backend it controls directly. Revisit this file if
-that changes (e.g. an Apache reverse-proxy gets added for LAN access).
+## Running the server
+
+FastAPI on `http://127.0.0.1:8000`, run by a **systemd user service**
+(`musicmod.service`, runs as swilsonmc, no root) — not Apache, no PHP.
+Unit files live in `deploy/`; `deploy/install-user-services.sh` copies them to
+`~/.config/systemd/user/`. **Re-run that script after editing anything in
+`deploy/`** — the installed copies don't update themselves.
+
+- It never starts at boot or login (no `[Install]` section) — the user wants
+  to start it by hand. Start/stop from the `/var/www` dashboard
+  (`http://localhost/`, musicmod card), or `systemctl --user start|stop musicmod`.
+- The dashboard runs as www-data and can't manage a user service, so it writes
+  `start`/`stop` to `projects/musicmod/control/request`; `musicmod-control.path`
+  (enabled, starts at login, costs nothing) sees the write and runs
+  `deploy/musicmod-control.sh`, which calls systemctl.
+- User services stop when swilsonmc logs out (linger is off) — that kills any
+  running separation. The next startup marks such jobs as interrupted.
+- **After changing app code: `systemctl --user restart musicmod`.** Don't also
+  launch uvicorn by hand from a session — it would fight the service for port 8000.
+- Restarting kills any separation in progress. Check `/api/uploads` for
+  `processing` jobs first; a real song can take over an hour.
+- Logs: `projects/musicmod/storage/logs/server.log` (append-only).

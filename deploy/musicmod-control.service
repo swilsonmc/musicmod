@@ -1,0 +1,6 @@
+[Unit]
+Description=Apply a musicmod start/stop request written by the dashboard
+
+[Service]
+Type=oneshot
+ExecStart=/var/www/musicmod/deploy/musicmod-control.sh

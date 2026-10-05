@@ -11,6 +11,8 @@ load_dotenv(Path("/var/www/projects/musicmod/.env"))
 STORAGE_ROOT = Path(os.environ["STORAGE_ROOT"])
 UPLOADS_DIR = STORAGE_ROOT / "uploads"
 STEMS_DIR = STORAGE_ROOT / "stems"
+# audio-separator's default cache is /tmp, which is wiped on reboot (1.7GB re-download each time).
+MODELS_DIR = STORAGE_ROOT / "models"
 
 MYSQL_HOST = os.environ["MYSQL_HOST"]
 MYSQL_DATABASE = os.environ["MYSQL_DATABASE"]

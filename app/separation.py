@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import time
+from collections import deque
 from pathlib import Path
 from typing import Callable
 
@@ -44,22 +45,36 @@ def run_model_with_progress(
         "-m", model,
         "--output_dir", str(model_dir),
         "--output_format", "WAV",
+        "--model_file_dir", str(config.MODELS_DIR),
     ]
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
 
+    recent_lines: deque[str] = deque(maxlen=8)
     last_sent = 0.0
     for line in process.stdout:
         line = line.strip()
+        if not line:
+            continue
         match = _PROGRESS_RE.search(line)
+        if not match:
+            # Everything else (model loading, warnings, tracebacks) still belongs in the server log.
+            print(line, flush=True)
+            recent_lines.append(line)
+            continue
         now = time.monotonic()
-        if match and now - last_sent > 1.0:
+        if now - last_sent > 1.0:
             pct, done, total, timing = match.groups()
             on_progress(f"{pct}% ({done}/{total} chunks, {timing})")
             last_sent = now
     process.wait()
 
+    if process.returncode < 0:
+        raise RuntimeError(
+            f"Stopped partway through the {model} model — usually because musicmod was "
+            "stopped during the separation. Upload the song again to retry."
+        )
     if process.returncode != 0:
-        raise RuntimeError(f"audio-separator (model {model}) exited with code {process.returncode}")
+        raise RuntimeError(f"{model} failed (exit code {process.returncode}). Last output: " + " | ".join(recent_lines))
 
     return _separate.canonicalize_outputs(model_dir)
 

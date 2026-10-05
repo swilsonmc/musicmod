@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for musicmod start/stop requests from the /var/www dashboard
+
+[Path]
+PathChanged=/var/www/projects/musicmod/control/request
+Unit=musicmod-control.service
+
+[Install]
+WantedBy=default.target

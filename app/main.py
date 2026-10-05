@@ -32,9 +32,22 @@ _separation_lock = threading.Lock()
 
 @app.on_event("startup")
 def on_startup() -> None:
-    config.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
-    config.STEMS_DIR.mkdir(parents=True, exist_ok=True)
+    for d in (config.UPLOADS_DIR, config.STEMS_DIR, config.MODELS_DIR):
+        d.mkdir(parents=True, exist_ok=True)
     db.init_schema()
+
+    # Stopping the server kills any running separation with it; without this
+    # that upload would show "processing" forever.
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE uploads SET status = 'error', progress = NULL, finished_at = %s, error = %s "
+                "WHERE status IN ('pending', 'processing')",
+                (datetime.now(), "Interrupted — the server was stopped before this finished. Upload it again to retry."),
+            )
+    finally:
+        conn.close()
 
 
 @app.get("/", response_class=HTMLResponse)
