@@ -25,3 +25,9 @@ venv/
 
 # OS
 .DS_Store
+
+# Secrets — the real file lives outside this repo entirely
+# (/var/www/projects/musicmod/.env), this is a defensive second layer only.
+.env
+.env.*
+!.env.example

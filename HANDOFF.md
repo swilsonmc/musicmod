@@ -1,3 +1,9 @@
+> **Local setup is done** (2026-10-04) — this repo now lives at
+> `/var/www/musicmod` with its own venv, a `musicmod_dev` MySQL database, and
+> secrets/storage at `/var/www/projects/musicmod/` (outside this repo). See
+> `CLAUDE.md` in this directory for the current setup instead of redoing the
+> steps below from scratch.
+
 # musicmod — project handoff
 
 This file is meant to be the first message in a **new local Claude Code
