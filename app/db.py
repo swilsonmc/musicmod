@@ -24,6 +24,18 @@ CREATE TABLE IF NOT EXISTS stems (
     file_path VARCHAR(500) NOT NULL,
     FOREIGN KEY (upload_id) REFERENCES uploads(id)
 );
+
+CREATE TABLE IF NOT EXISTS midi_tracks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    upload_id INT NOT NULL,
+    stem_name VARCHAR(20) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    method VARCHAR(20) NOT NULL,
+    note_count INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY one_per_stem (upload_id, stem_name),
+    FOREIGN KEY (upload_id) REFERENCES uploads(id)
+);
 """
 
 # This MySQL version (8.0.46) rejects `ADD COLUMN IF NOT EXISTS` as a syntax
@@ -34,6 +46,11 @@ ADD_COLUMNS = [
     "ALTER TABLE uploads ADD COLUMN progress VARCHAR(255) NULL",
     "ALTER TABLE uploads ADD COLUMN started_at TIMESTAMP NULL",
     "ALTER TABLE uploads ADD COLUMN finished_at TIMESTAMP NULL",
+    "ALTER TABLE uploads ADD COLUMN transcribe_status VARCHAR(20) NULL",
+    "ALTER TABLE uploads ADD COLUMN transcribe_progress VARCHAR(255) NULL",
+    "ALTER TABLE uploads ADD COLUMN transcribe_error TEXT NULL",
+    "ALTER TABLE uploads ADD COLUMN transcribe_started_at TIMESTAMP NULL",
+    "ALTER TABLE uploads ADD COLUMN transcribe_finished_at TIMESTAMP NULL",
 ]
 DUPLICATE_COLUMN_ERRNO = 1060
 
@@ -47,6 +64,30 @@ def get_connection():
         cursorclass=DictCursor,
         autocommit=True,
     )
+
+
+def execute(sql: str, params: tuple = ()) -> None:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+    finally:
+        conn.close()
+
+
+def fetch_all(sql: str, params: tuple = ()) -> list[dict]:
+    conn = get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, params)
+            return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def fetch_one(sql: str, params: tuple = ()) -> dict | None:
+    rows = fetch_all(sql, params)
+    return rows[0] if rows else None
 
 
 def init_schema() -> None:

@@ -21,6 +21,13 @@
   .status-box dt { font-weight: 600; }
   .status-box dd { margin: 0; }
   nav a { margin-right: 1rem; }
+  .transcribe-box { margin-top: 0.75rem; padding-top: 0.5rem; border-top: 1px solid #eee; }
+  .transcribe-box p { margin: 0 0 0.5rem; }
+  .transport { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+  .roll { position: relative; height: 80px; margin-top: 4px; background: #fafaff; border: 1px solid #eee; border-radius: 4px; }
+  .roll canvas { display: block; width: 100%; height: 100%; cursor: pointer; }
+  .roll .playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: #c0392b; pointer-events: none; }
+  .caption { font-size: 0.8rem; color: #666; margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -39,6 +46,7 @@
   <div id="player"></div>
 
   <script src="/static/format.js"></script>
+  <script src="/static/pianoroll.js"></script>
   <script src="/static/player.js"></script>
 </body>
 </html>

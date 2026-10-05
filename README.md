@@ -5,12 +5,15 @@ separation, editable MIDI transcription per stem, swapping instruments or
 vocals, and a non-linear-editor-style multitrack timeline — built to run
 on your own machine, not a cloud service.
 
-**Status: Phase 2 of 6 — a first working app.** You can upload a song,
-have it separated into vocals / drums / bass / other, and play the stems
-back together with per-stem mute, solo, and volume. Phase 1 — choosing
-which AI separation models to build on, scored against real official
-multitrack recordings instead of guesswork — is done, and its harness is
-still here. Editing, MIDI, and export (phases 3–6) don't exist yet.
+**Status: Phase 3 of 6 in progress.** You can upload a song, have it
+separated into vocals / drums / bass / other, play the stems back together
+with per-stem mute, solo, and volume, and see each pitched stem transcribed
+into notes (MIDI) on a piano roll under its waveform — playable through a
+simple synth for comparison, and downloadable as a standard MIDI file.
+Phase 1 — choosing which AI separation models to build on, scored against
+real official multitrack recordings instead of guesswork — is done, and
+its harness is still here. Note *editing*, instrument swapping, the
+timeline editor, and export (rest of phase 3 through 6) don't exist yet.
 
 ## The idea
 
@@ -79,7 +82,13 @@ change them in `app/config.py` and `deploy/` if yours differ.
    python3 -m venv venv
    venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
    venv/bin/pip install -r requirements.txt
+   venv/bin/pip install --no-deps basic-pitch==0.4.0
    ```
+   The last line is deliberate: Basic Pitch's package metadata demands a
+   TensorFlow version that was never built for Python 3.12, but it also
+   ships its model in ONNX format, which runs on the `onnxruntime` already
+   installed for separation. `--no-deps` skips the impossible requirement;
+   `requirements.txt` supplies the dependencies it actually uses.
 3. **Database:** create a MySQL database and a user that can only touch
    it, then copy `.env.example` to `/var/www/projects/musicmod/.env`
    (outside the repo) and fill it in. Tables are created automatically
@@ -93,6 +102,28 @@ change them in `app/config.py` and `deploy/` if yours differ.
 
 The first separation downloads about 1.7 GB of model files, cached in
 `storage/models/` for every run after.
+
+## Phase 3 (in progress): transcription to MIDI
+
+After separation finishes, each pitched stem is converted into notes
+automatically (or on demand with a **Transcribe** button):
+
+| Stem | Method | Why |
+|---|---|---|
+| other | [Basic Pitch](https://github.com/spotify/basic-pitch) (Spotify) | handles many simultaneous notes — chords, piano, strummed guitar |
+| vocals, bass | pYIN pitch tracking (librosa) | follows one melody line; fewer stray notes on single-voice parts |
+| drums | — | not pitched; needs a dedicated drum transcriber, not built yet |
+
+It's cheap: about a minute for a 4½-minute song, versus 81 minutes to
+separate it. Each transcribed stem gets a piano-roll strip aligned under
+its waveform, a **Synth** toggle that plays the detected notes alongside
+the real audio (the quickest way to judge how good the transcription
+is), and a **MIDI ↓** download. Notes are in real time, not snapped to a
+beat grid — tempo detection comes with notation export later.
+
+`tests/smoke_transcription.py` checks the wiring on synthetic audio with
+known notes: `venv/bin/python -m tests.smoke_transcription`. Real-music
+accuracy isn't measured yet — that needs songs with real ground-truth MIDI.
 
 ## Phase 1: the stem-separation model shootout
 
@@ -155,7 +186,8 @@ CLAUDE.md                local-machine setup notes (read automatically by Claude
 CONTRIBUTING.md          how to add a new song to the shootout, and general workflow
 LICENSE                  MIT, for the code in this repo — not for any third-party test audio
 requirements.txt         Python dependencies for the app (includes the shootout's)
-app/                     Phase 2: FastAPI backend + static HTML/JS player and archive pages
+app/                     FastAPI backend (separation, transcription) + static HTML/JS player and archive
+tests/                   smoke tests that drive the real app code on synthetic audio
 deploy/                  systemd user units + the script that installs them
 stem-shootout/           Phase 1: the model-accuracy validation harness
   LEADERBOARD.md          auto-generated cross-song model comparison (see CONTRIBUTING.md)

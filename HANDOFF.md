@@ -562,3 +562,72 @@ stems, much slower"), not the default.
 their outputs to stems; model names are in `app/config.py`. The `stems`
 table stores a free-text stem name and the player draws whatever stems
 an upload has, so more stems need no schema or player changes.
+
+## Phase 3 status — transcription working, note editing not started (2026-10-05)
+
+Built: `app/transcription.py` converts each pitched stem to MIDI, run
+automatically after separation and on demand from a **Transcribe**
+button. Basic Pitch for "other", pYIN (librosa) for vocals and bass, per
+the architecture above; drums are skipped and the UI says why. Results go
+to `storage/midi/<upload>/<stem>.mid` and a `midi_tracks` table. The
+player draws each stem's notes as a piano roll aligned under its
+waveform, with a moving playhead, click-to-seek, a **Synth** toggle (plays
+the notes through a simple WebAudio synth alongside the real audio, to
+judge the transcription by ear), and a **MIDI ↓** download with a General
+MIDI instrument set per stem. `tests/smoke_transcription.py` drives the
+real code on synthetic audio with known notes.
+
+Measured on "Noah's Dove" (4:34) on the target laptop:
+
+| Stem | Method | Time | Notes | Range |
+|---|---|---|---|---|
+| bass | pYIN | 24 s | 353 | E1–F2 |
+| vocals | pYIN | 25 s | 473 | F3–B5 |
+| other | Basic Pitch | 13 s | 3,365 | F1–B6 |
+
+About a minute in total, ~1% of separation time — which is why it runs
+automatically rather than being opt-in.
+
+Departure from the plan: **Basic Pitch 0.4.0 is installed with
+`--no-deps`.** Its metadata requires TensorFlow < 2.15.1, which has no
+Python 3.12 build, so pip falls back to a 2022 release that needs a numpy
+it can't build. The package ships its model as ONNX too, and onnxruntime
+is already installed for separation, so TensorFlow isn't needed at all.
+
+Also fixed in the player while here: clicking one stem's waveform used to
+seek only that stem, putting the others out of sync; and switching
+uploads left the previous song's audio loaded (and playing, if it was).
+
+### Known weaknesses, not yet addressed
+
+- **No accuracy measurement on real music yet** — the phase 1 rule
+  ("measured, not eyeballed") isn't met for transcription. It needs real
+  audio with aligned ground-truth MIDI. Slakh2100 (multitrack audio
+  rendered from MIDI, with stems and the source MIDI aligned) fits this
+  project unusually well because it gives ground truth for separation
+  *and* transcription per instrument; check its license and size first.
+- **Basic Pitch over-detects**: 16 notes for 12 real ones on synthetic
+  chords (likely overtones read as notes), and 3,365 notes on a dense
+  "other" stem. Its thresholds are library defaults; tune only against
+  ground truth.
+- **pYIN shows occasional isolated high notes** on vocals (octave errors
+  or breaths). A cheap sanity check that pitch numbering is right: on
+  "Noah's Dove" all three stems' most common pitch classes fall in one
+  seven-note scale.
+- **Drums**: needs a dedicated drum-transcription model (e.g. ADTOF);
+  nothing is built.
+- **Notes aren't on a beat grid** — real seconds, tempo 120 in the MIDI
+  file. Beat tracking is needed before MusicXML/notation export.
+
+### Open decision — the note editor (waiting on the owner)
+
+The architecture above picked the open-source **Signal** web piano roll
+for editing. Looking closer before building: Signal is a complete
+standalone app (React/TypeScript, its own build), not a component, so
+using it here means forking it, building it with a Node toolchain, and
+adding load-from/save-to-our-server to it — then keeping that fork
+current. The alternative is adding editing (select, move, resize, delete,
+add notes, save) to the piano roll this app already draws, which is
+already aligned to the audio, needs no build step, and stays light on the
+target laptop, at the cost of writing and maintaining the editing code
+ourselves. The owner was asked which to do; record the answer here.

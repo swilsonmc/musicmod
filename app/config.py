@@ -13,6 +13,7 @@ UPLOADS_DIR = STORAGE_ROOT / "uploads"
 STEMS_DIR = STORAGE_ROOT / "stems"
 # audio-separator's default cache is /tmp, which is wiped on reboot (1.7GB re-download each time).
 MODELS_DIR = STORAGE_ROOT / "models"
+MIDI_DIR = STORAGE_ROOT / "midi"
 
 MYSQL_HOST = os.environ["MYSQL_HOST"]
 MYSQL_DATABASE = os.environ["MYSQL_DATABASE"]

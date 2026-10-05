@@ -19,6 +19,11 @@ function formatTime(isoString) {
   return new Date(isoString).toLocaleString();
 }
 
+function noteName(midiPitch) {
+  const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+  return names[midiPitch % 12] + (Math.floor(midiPitch / 12) - 1);
+}
+
 function escapeHtml(s) {
   const div = document.createElement('div');
   div.textContent = s ?? '';

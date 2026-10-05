@@ -50,6 +50,11 @@ Install/update deps with that venv's `pip` from the top-level `requirements.txt`
 CPU index first** (`pip install torch torchvision --index-url
 https://download.pytorch.org/whl/cpu`): this laptop has only an Intel iGPU, and
 a plain install pulls the CUDA build — ~5 GB of unusable NVIDIA libraries.
+Then `pip install --no-deps basic-pitch==0.4.0` — its declared TensorFlow
+dependency doesn't exist for Python 3.12; it runs on its bundled ONNX model.
+
+Smoke test for transcription (synthetic audio, real code):
+`venv/bin/python -m tests.smoke_transcription`.
 
 ## Database
 

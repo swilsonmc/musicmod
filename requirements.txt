@@ -8,3 +8,9 @@ python-multipart
 python-dotenv
 PyMySQL
 audioread  # audio-separator's librosa path needs this; not pulled in automatically
+
+# Phase 3 transcription. basic-pitch itself must be installed separately with
+# --no-deps (see README): its metadata demands TensorFlow < 2.15.1, which has no
+# Python 3.12 build, but it ships an ONNX model that runs on onnxruntime instead.
+pretty-midi
+mir-eval
