@@ -1,0 +1,15 @@
+{
+  "song_name": "A Light That Never Comes (6-stem: guitar/piano split)",
+  "artist": "Linkin Park & Steve Aoki",
+  "album": "single (2013)",
+  "license_note": "Same source audio as the 4-bucket 'a_light_that_never_comes' entry (see its config.json for full licensing detail) - this entry re-buckets the identical raw tracks via relative path (not duplicated on disk) to test a 6-stem guitar/piano split, per the cloud research task in HANDOFF.md ('Next research task: split other further').",
+  "genre_notes": "Same song as 'a_light_that_never_comes'. Re-bucketed: guitar (Ac__Guitar+El__Guitar combined into one bucket, since htdemucs_6s outputs a single combined guitar stem, not separate acoustic/electric) and piano as their own buckets instead of being folded into 'other'.",
+
+  "mixdown": "../a_light_that_never_comes/mixdown.wav",
+  "raw_multitrack_dir": "../a_light_that_never_comes/reference_raw/",
+  "bucket_mapping": "reference_mapping.json",
+
+  "models": [
+    "htdemucs_6s.yaml"
+  ]
+}

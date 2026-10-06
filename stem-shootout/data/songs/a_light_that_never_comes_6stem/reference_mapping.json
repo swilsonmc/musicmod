@@ -1,0 +1,10 @@
+{
+  "_method": "Re-buckets a_light_that_never_comes' raw tracks (identical files, referenced via ../a_light_that_never_comes/) to score htdemucs_6s's 6-stem split specifically. Ac__Guitar+El__Guitar are combined into one 'guitar' bucket since htdemucs_6s only outputs a single combined guitar stem, not separate acoustic/electric.",
+
+  "vocals": ["Lead_Vocals.wav", "BG_Vocals.wav"],
+  "drums": ["Drums.wav"],
+  "bass": ["Bass.wav"],
+  "guitar": ["Ac__Guitar.wav", "El__Guitar.wav"],
+  "piano": ["Piano.wav"],
+  "other": ["Effects.wav"]
+}

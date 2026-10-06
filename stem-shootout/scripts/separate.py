@@ -7,9 +7,17 @@ discovered with `audio-separator --list_models`, not guessed here.
 Different model architectures name their output files differently (and some
 only produce vocals/instrumental, not a full 4-stem split). This script
 doesn't try to paper over that — it pattern-matches filenames into the
-canonical {vocals, drums, bass, other, instrumental} buckets it recognizes
-and records exactly what each model actually produced in manifest.json, so
-score.py only ever scores stems that genuinely exist for a given model.
+canonical buckets it recognizes (vocals, drums, bass, other, instrumental,
+plus guitar/piano for 6-stem models like htdemucs_6s) and records exactly
+what each model actually produced in manifest.json, so score.py only ever
+scores stems that genuinely exist for a given model.
+
+Before adding a new pattern here, check the model's exact output filenames
+first (run it once, look at what it actually wrote) rather than guessing —
+and check the new substring doesn't appear in any model's own NAME, the
+same way "Kim_Vocal_2.onnx" collided with the "vocals" pattern (see the
+bug writeup in HANDOFF.md / stem-shootout/README.md). "guitar" and "piano"
+were checked against htdemucs_6s.yaml's own name before being added below.
 """
 from __future__ import annotations
 
@@ -26,6 +34,8 @@ CANONICAL_PATTERNS = {
     "instrumental": ["instrumental"],
     "drums": ["drum"],
     "bass": ["bass"],
+    "guitar": ["guitar"],
+    "piano": ["piano"],
     "other": ["other"],
 }
 
