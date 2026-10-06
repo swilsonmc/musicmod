@@ -1003,3 +1003,158 @@ promise above is about the *unzoomed* overview only. Synchronizing zoom
 across the waveform and every stem's roll together is a bigger change
 (WaveSurfer has its own zoom API that would need to be driven in lockstep
 with each roll's) and wasn't attempted.
+
+## Cloud research task continued: the hardware question (2026-10-06)
+
+The owner asked directly: is further "other" splitting (per-instrument
+classical/orchestral separation especially) blocked by hardware, or not?
+Short answer, stated precisely because the honest version has two parts
+that are easy to conflate: **not by this laptop's CPU vs. a GPU, for the
+models already in hand — those would just run faster. It is blocked by
+what those models were ever trained to recognize, and genuinely fixing
+that does need a GPU, just for training, not for running what already
+exists.**
+
+### Why this isn't a speed problem
+
+Neural network inference is deterministic: the same checkpoint run on
+the same input produces the same output on a CPU or a GPU, just at
+different speed. `htdemucs_6s`'s guitar/piano separation was already
+measured as poor (-6.13dB SDR, -33dB SIR on guitar) running on this
+container's CPU. Running that exact checkpoint on an RTX 4090 would
+produce byte-identical numbers, just in under a minute instead of ~15.
+A GPU does not make an existing model better at a task it wasn't trained
+for — it only makes the wrong answer arrive faster.
+
+### A real experiment: Beethoven's 5th on today's best "many stems" model
+
+Found real orchestral ground-truth datasets exist (URMP, 12.5GB/
+registration-gated with a smaller ungated sample; the brand-new Spheres
+dataset, Oct 2025, Tchaikovsky/Mozart, CC BY-SA 4.0, no registration —
+but its isolated-stems archive is 25.3GB, more than this session's
+~11GB free disk) but getting one set up and scored was its own multi-hour
+task on top of everything else here, so instead ran the one experiment
+that fits in this session: downloaded a real, public-domain, full-
+orchestra recording (Beethoven's Symphony No. 5, 1st movement, Musopen
+recording via archive.org — see "sourcing friction" below for why
+archive.org specifically) and ran `htdemucs_6s` on it. No isolated
+ground truth exists for this recording, so this is **not** a scored
+result like everything else in this catalog — it's a measured
+*characterization* of the failure, not a SDR number:
+
+| output bucket | % of mixdown RMS |
+|---|---|
+| other | 78.1% |
+| guitar | 35.0% |
+| piano | 19.2% |
+| vocals | 12.8% |
+| drums | 12.4% |
+| bass | 12.0% |
+
+(These sum past 100% because the buckets aren't energy-exclusive here —
+more on that below.) Most energy correctly landing in "other" is the
+*least* wrong part. The striking part: **35% of the mixdown's energy
+got pulled into "guitar," 19% into "piano," 13% into "vocals"** — a
+symphony orchestra has none of those. Checked whether this was just the
+same content copied into multiple buckets (correlation between guitar/
+vocals/piano and "other": 0.004–0.18, i.e. no) — the model is genuinely
+decomposing the real orchestral signal into pieces it mistakes for
+guitar, piano, and singing, each a real but wrongly-labeled slice of the
+sound. That's the mechanism, concretely: **the model doesn't fail by
+doing nothing; it fails by confidently mis-sorting real content into
+categories that don't apply**, because sustained legato strings/winds
+share enough timbral territory with "vocals," certain string textures
+with "guitar," and so on. This is the same failure mode already flagged
+for Jacob's Ladder's high-synth/falsetto confusion — now shown to
+generalize to orchestral strings and winds too, not a one-song quirk.
+
+### What's actually needed for real per-instrument separation
+
+Researched the current state of the art looking specifically for
+anything beyond today's fixed 4-6-stem taxonomy:
+
+- **Banquet** (`github.com/kwatcharasupat/query-bandit`, Watcharasupat &
+  Lerch, 2024) — a genuinely different approach: one small (24.9M
+  parameter) model takes a *query* (an example audio clip of the target
+  instrument) instead of a fixed output list, so it can separate
+  "clean acoustic guitars," "reeds," "organs" — arbitrary classes, not
+  just what a training run happened to include as named outputs. Per
+  its paper, it already *outperforms* 6-stem Hybrid Transformer Demucs
+  on guitar and piano specifically, at a fraction of the parameters.
+  Pretrained weights are published (Zenodo, CC BY-NC-SA 4.0 — compatible
+  with this project), and its own code confirms CPU inference is a real
+  supported path (`accelerator="gpu" if torch.cuda.is_available() else
+  "cpu"`, `use_cuda=False` does `system.cpu()`), not a GPU-only tool.
+  **This is the most promising concrete next step, and it does not need
+  a GPU to try.** It is, however, a real integration task: no
+  `requirements.txt`/packaging, a custom architecture with its own
+  dependencies (a PaSST audio-tagging submodel among them) — cloned the
+  repo and confirmed this firsthand rather than assuming it from the
+  README. Didn't attempt the full dependency setup this round (the
+  research task above already used most of this session's time) — a
+  fair estimate is a few focused hours for someone able to iterate on
+  its actual dependency list, not a GPU-bound effort.
+- **AudioSep** (`github.com/Audio-AGI/AudioSep`) — the more general
+  cousin: text-query separation ("separate anything you describe"),
+  published results include 10.51dB SDR improvement specifically on a
+  music-instrument benchmark. Explicitly supports CPU ("can run on CPU
+  with reduced performance"), though its checkpoint and conda-based
+  setup looked heavier than Banquet's — worth trying second, not first.
+- **Training data for a real fine-tune, if Banquet/AudioSep aren't
+  enough on their own**: MoisesDB (scoped already, two sessions ago —
+  registration-gated, CC BY-NC-SA 4.0), the new **Spheres** dataset
+  (orchestral-specific, Tchaikovsky/Mozart, CC BY-SA 4.0, no
+  registration, 25.3GB for real isolated-stem ground truth), and
+  **URMP** (classical chamber pieces specifically, 12.5GB full set
+  registration-gated, a single ungated sample piece available). All
+  three now exist and weren't on anyone's radar before this round of
+  research — write this down so a future session doesn't have to
+  rediscover them.
+
+**This is where a GPU is a genuine, not optional, requirement**: training
+or fine-tuning any of these architectures at a usable speed needs one —
+not because this laptop's CPU is unusually weak, but because deep-model
+training is structurally GPU-bound industry-wide (the Banquet paper
+itself cites training batches sized for an RTX 4090). Running inference
+on an already-published checkpoint (Banquet, AudioSep, or even today's
+`htdemucs_6s`) does not have that requirement; it's purely an engineering/
+integration task, and CPU-only hardware like this laptop is a real option
+for it, just a slower one.
+
+### Bottom line, directly
+
+- **Buying a GPU and running today's existing checkpoints on it would
+  not fix per-instrument/orchestral separation.** The numbers would be
+  identical to what's already been measured on CPU, just faster to get.
+- **The actual path to more stems is**: try Banquet (and/or AudioSep)
+  first — real engineering time, no GPU required, could genuinely
+  deliver more stem categories than today's fixed taxonomy without any
+  training. If that's not sufficient, fine-tune on Spheres/URMP/MoisesDB
+  — **this step does need a GPU**, as a hard practical requirement, not
+  a nice-to-have. If the owner wants to invest in a GPU machine, that's
+  the point where it would actually pay off — not for making the current
+  app faster, but for enabling that fine-tune.
+- Scored, not guessed: the next time either Banquet or a fine-tune gets
+  tried, run it through this same harness (`score.py`/
+  `aggregate_results.py`, already generalized to handle arbitrary
+  bucket sets) against real ground truth (Spheres/URMP once staged, or
+  the catalog's existing guitar/piano cases) before trusting it — same
+  rule as everywhere else in this project.
+
+### Sourcing friction (a smaller, secondary finding)
+
+Asked to find classical source material from somewhere other than
+archive.org specifically. Tried, in order: Wikimedia Commons (upload
+servers returned a genuine rate-limit error naming the shared egress
+IP, not a guess — confirmed by reading the actual response body),
+Musopen.org directly (blocked outright), IMSLP (served a JS-based bot
+CAPTCHA challenge page), the Library of Congress's National Jukebox
+(403). Four different platforms, four different automated-access
+protections, zero successes. archive.org — which also hosts enormous
+amounts of genuinely public-domain classical/orchestral material,
+including Musopen's own professionally-recorded symphonies — has never
+once blocked anything in this entire project. Owner approved falling
+back to archive.org for this one file given that pattern. Worth knowing
+going forward: sourcing classical ground-truth test material from
+"somewhere else" is a real, repeated point of friction, not a one-off;
+budget for it, or expect to end up back at archive.org anyway.
