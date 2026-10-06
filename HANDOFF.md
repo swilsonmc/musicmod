@@ -1158,3 +1158,77 @@ back to archive.org for this one file given that pattern. Worth knowing
 going forward: sourcing classical ground-truth test material from
 "somewhere else" is a real, repeated point of friction, not a one-off;
 budget for it, or expect to end up back at archive.org anyway.
+
+## Phase 3 addendum 3 — shared-clock playback engine, replacing per-stem drift (2026-10-06)
+
+Rebuilt how audio actually plays, to fix the drift documented in the
+first Phase 3 addendum (four stems measured ~1.4ms apart after 7.6s of
+"synced" playback). Root cause: each stem was its own WaveSurfer
+instance, each backed by its own `<audio>` element, each with its own
+independent playback clock — nothing kept them locked together, only
+started together.
+
+**New: `app/static/audioengine.js`.** Every stem is fetched and decoded
+once into an `AudioBuffer`; `engine.play()` creates one
+`AudioBufferSourceNode` per stem and starts every one of them with the
+exact same `when` and the exact same buffer offset, in one synchronous
+loop, against one shared `AudioContext`. That's not a measured
+improvement, it's a structural guarantee — confirmed directly by
+intercepting every `createBufferSource().start()` call during a real
+play: all four stems' `when` and `offset` were bit-for-bit identical
+(`51.18533333333333`, both times). There's no longer a per-stem clock to
+compare, which is the actual fix, not just a smaller version of the
+old problem.
+
+WaveSurfer instances stay, muted (`setVolume(0)`), purely to draw each
+waveform and handle click-to-seek — `engine` is what produces sound and
+owns the transport. The synth (note-preview audio from the piano roll)
+now shares the same `AudioContext` via `engine.ensureContext()` instead
+of creating its own, so there's exactly one audio clock on the page, not
+two. Mute/solo/volume now route through `engine.setMuted/setSoloed/setVolume`.
+Decoding all four stems takes under 3 seconds on the target laptop; the
+transport is disabled with a "Loading audio engine…" message until that
+finishes.
+
+Verified live, not just by construction: sample-accurate scheduling
+(above), mute/solo/volume gain routing, pause holding position exactly
+with zero drift while paused, resume continuing correctly, and waveform
+click-to-seek.
+
+### A real, reproducible bug found while testing this — not the engine's fault
+
+Testing waveform click-to-seek with synthetic DOM events initially
+produced nothing, then investigating piano-roll note creation the same
+way produced a note with **pitch -112** — 112 semitones below MIDI's
+valid range, corrupting that stem's displayed pitch range to "NaN" (a
+second, smaller bug: `noteName()` didn't handle negative pitches, since
+JS's `%` keeps the dividend's sign — fixed alongside).
+
+Root cause, confirmed by instrumenting the actual code path and
+reproducing it twice identically: `createPianoRoll`'s mousedown handler
+called `canvas.focus()` *before* computing the click's position from
+`canvas.getBoundingClientRect()`. If the roll wasn't already fully
+scrolled into view, focusing it made the browser auto-scroll the page —
+which moved the canvas between when the click was dispatched and when
+the handler read its position, so the position was computed against the
+*post-scroll* rect while the original screen coordinates were now
+pointing somewhere else entirely. A real, reachable bug: any click that
+also happens to scroll the roll into view is enough to trigger it,
+not something synthetic about the test.
+
+Fixed three ways, not just the proximate one: positions are now read via
+`e.offsetX`/`e.offsetY` (computed by the browser at dispatch time,
+immune to any later layout shift) instead of re-deriving them from a
+fresh `getBoundingClientRect()` call; `canvas.focus()` moved to *after*
+position is read, as defense in depth; and `xyToTimePitch()` now clamps
+pitch to \[0, 127] unconditionally, so even an unforeseen variant of this
+bug class can't write a nonsensical note into the data again.
+
+### Not done
+
+Zoom still doesn't extend to the waveform (per the previous addendum).
+Decoding duplicates work WaveSurfer already does internally for its own
+waveform rendering — each stem's audio is now fetched and decoded twice
+(once by WaveSurfer for display, once by the engine for playback). Fine
+on localhost with files this size; would be worth revisiting if stems
+get much larger or this ever serves more than one user at a time.

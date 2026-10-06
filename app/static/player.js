@@ -50,6 +50,7 @@ function stopTimers() {
 // Without this, switching uploads leaves the previous song's audio playing invisibly.
 function teardownPlayer() {
   synth.stop();
+  engine.reset();
   for (const t of Object.values(tracks)) t.wavesurfer.destroy();
   tracks = {};
   lastEditedRoll = null;
@@ -161,21 +162,25 @@ function watchTranscription(id, box) {
   transcribeTimer = setInterval(check, 3000);
 }
 
+// Playback position/state now comes from `engine` (one shared AudioContext
+// clock — see audioengine.js) instead of each stem's own WaveSurfer, which
+// is what used to let stems drift apart: every <audio> element has its own
+// independent clock. WaveSurfer instances stay for drawing waveforms and
+// click-to-seek only; they're muted and never produce sound themselves.
 function songDuration() {
-  return Math.max(0, ...Object.values(tracks).map((t) => t.wavesurfer.getDuration() || 0));
+  return engine.duration;
 }
 
 function songTime() {
-  const first = Object.values(tracks)[0];
-  return first ? first.wavesurfer.getCurrentTime() : 0;
+  return engine.currentTime();
 }
 
 function anyPlaying() {
-  return Object.values(tracks).some((t) => t.wavesurfer.isPlaying());
+  return engine.playing;
 }
 
 function seekAll(time) {
-  for (const t of Object.values(tracks)) t.wavesurfer.setTime(time);
+  engine.seek(time);
   restartSynthIfPlaying();
 }
 
@@ -190,6 +195,10 @@ function restartSynthIfPlaying() {
   if (anyPlaying() && synthParts().length) synth.start(songTime, anyPlaying, synthParts);
 }
 
+// Natural end-of-song (not a manual pause/stop, which already call
+// synth.stop() themselves) needs its own hook to cut the synth off too.
+engine.onEnded = () => synth.stop();
+
 function updateTimecodes() {
   const master = document.getElementById('master-time');
   if (!master) return;
@@ -199,9 +208,11 @@ function updateTimecodes() {
   const fill = document.getElementById('master-bar-fill');
   if (fill) fill.style.width = duration ? `${(now / duration) * 100}%` : '0%';
   for (const t of Object.values(tracks)) {
-    const d = t.wavesurfer.getDuration();
-    if (t.timeEl) t.timeEl.textContent = formatTimecode(t.wavesurfer.getCurrentTime());
-    if (t.roll) t.roll.setPlayheadFraction(d ? t.wavesurfer.getCurrentTime() / d : 0);
+    // Every stem shows the SAME `now` — the whole point of the shared clock
+    // is that there's no longer a per-stem position to disagree about.
+    if (t.timeEl) t.timeEl.textContent = formatTimecode(now);
+    if (t.roll) t.roll.setPlayheadFraction(duration ? now / duration : 0);
+    t.wavesurfer.setTime(now); // keeps the (muted, silent) waveform cursor visually in sync
   }
 }
 
@@ -254,23 +265,23 @@ function renderDone(upload) {
   `;
   playerDiv.appendChild(transport);
   transport.querySelector('#play-all').onclick = () => {
-    Object.values(tracks).forEach((t) => t.wavesurfer.play());
+    engine.play();
     if (synthParts().length) synth.start(songTime, anyPlaying, synthParts);
   };
   transport.querySelector('#pause-all').onclick = () => {
     synth.stop();
-    Object.values(tracks).forEach((t) => t.wavesurfer.pause());
+    engine.pause();
   };
   transport.querySelector('#stop-all').onclick = () => {
     synth.stop();
-    Object.values(tracks).forEach((t) => t.wavesurfer.stop());
+    engine.stop();
     updateTimecodes();
   };
   transport.querySelector('#master-bar').onclick = (e) => {
     const rect = e.currentTarget.getBoundingClientRect();
     seekAll(((e.clientX - rect.left) / rect.width) * songDuration());
   };
-  masterTickTimer = setInterval(updateTimecodes, 100);
+  const engineLoads = [];
 
   for (const [stemName, url] of Object.entries(upload.stems)) {
     const midi = upload.midi[stemName];
@@ -319,15 +330,20 @@ function renderDone(upload) {
     waveformDiv.className = 'track-waveform';
     main.append(controls, waveformDiv);
 
+    // WaveSurfer draws the waveform and handles click-to-seek, but never
+    // produces sound itself — muted permanently, since real playback goes
+    // through `engine` now (see audioengine.js for why).
     const wavesurfer = WaveSurfer.create({ container: waveformDiv, height: 60, url });
+    wavesurfer.setVolume(0);
     const t = tracks[stemName] = {
       wavesurfer, muted: false, soloed: false, volume: 1, notes: null, lastSaved: null, dirty: false,
       synthOn: false, isDrum, roll: null, timeEl,
     };
+    const engineLoad = engine.loadStem(stemName, url);
+    engineLoads.push(engineLoad);
 
     // Clicking one waveform used to move only that stem, putting the others out of sync.
     wavesurfer.on('interaction', (time) => seekAll(time));
-    wavesurfer.on('finish', () => { if (!anyPlaying()) synth.stop(); });
 
     if (midi) {
       const rollContainer = document.createElement('div');
@@ -352,7 +368,7 @@ function renderDone(upload) {
       side.append(saveBtn, revertBtn, zoomInBtn, zoomOutBtn);
 
       const roll = createPianoRoll(rollContainer, {
-        getDuration: () => wavesurfer.getDuration(),
+        getDuration: () => engine.duration,
         isDrum,
         onChange: (notes) => {
           t.notes = notes;       // live, so Synth hears edits immediately — no server round trip needed
@@ -398,6 +414,7 @@ function renderDone(upload) {
       Promise.all([
         fetch(midi.notes_url).then((r) => r.json()),
         new Promise((resolve) => wavesurfer.once('ready', resolve)),
+        engineLoad,
       ]).then(([{ notes }]) => {
         t.notes = notes;
         t.lastSaved = notes.map((n) => n.slice());
@@ -422,20 +439,29 @@ function renderDone(upload) {
     muteBtn.onclick = () => {
       t.muted = !t.muted;
       muteBtn.style.fontWeight = t.muted ? 'bold' : 'normal';
-      applyMix();
+      engine.setMuted(stemName, t.muted);
     };
     soloBtn.onclick = () => {
       t.soloed = !t.soloed;
       soloBtn.style.fontWeight = t.soloed ? 'bold' : 'normal';
-      applyMix();
+      engine.setSoloed(stemName, t.soloed);
     };
     volume.oninput = () => {
       t.volume = parseFloat(volume.value);
-      applyMix();
+      engine.setVolume(stemName, t.volume);
     };
   }
 
   alignMasterBar();
+
+  const transportButtons = transport.querySelectorAll('button');
+  transportButtons.forEach((b) => { b.disabled = true; });
+  transport.querySelector('.time-readout').textContent = 'Loading audio engine…';
+  Promise.all(engineLoads).then(() => {
+    transportButtons.forEach((b) => { b.disabled = false; });
+    updateTimecodes();
+    masterTickTimer = setInterval(updateTimecodes, 100);
+  });
 }
 
 // The .track-side button column's width depends on its content (font,
@@ -460,13 +486,6 @@ function describeNotes(stemName, notes, method) {
     (notes.length ? ` · range ${noteName(Math.min(...pitches))}–${noteName(Math.max(...pitches))}` : '');
 }
 
-function applyMix() {
-  const anySoloed = Object.values(tracks).some((t) => t.soloed);
-  for (const t of Object.values(tracks)) {
-    const audible = !t.muted && (!anySoloed || t.soloed);
-    t.wavesurfer.setVolume(audible ? t.volume : 0);
-  }
-}
 
 let resizeTimer = null;
 window.addEventListener('resize', () => {
