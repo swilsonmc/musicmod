@@ -111,8 +111,8 @@ isn't earning its keep on this evidence.
 | slug | artist / song | why it's useful |
 |---|---|---|
 | `discipline` | Nine Inch Nails — "Discipline" (*The Slip*) | CC BY-NC-SA — **both** mixdown and multitracks are the real official files, no synthetic mixdown needed. Industrial/alt-rock, baritone lead + **2 separate harmony layers** (BV, Woo Voc), lots of synth/electronic "other" content (Marimba, Piano, Riff, Tone, Vostok Bass/Riff, Xpander). |
-| `nude` | Radiohead — "Nude" (*In Rainbows*) | 5 cleanly-labeled official stems (Bass/Drum/Guitar/String FX/Voice) from a 2008 remix contest, already public on archive.org. Single falsetto lead vocal, sparse/atmospheric — a very different mix density than the other songs. |
-| `a_light_that_never_comes` | Linkin Park & Steve Aoki | 8 cleanly-labeled official stems including **separate Lead_Vocals + BG_Vocals** — the clearest harmony-vocal test case in the set. EDM/rock hybrid with a programmed "Effects" layer. |
+| `nude` | Radiohead — "Nude" (*In Rainbows*) | 5 cleanly-labeled official stems (Bass/Drum/Guitar/String FX/Voice) from a 2008 remix contest, already public on archive.org: [`nudestems`](https://archive.org/details/nudestems). Single falsetto lead vocal, sparse/atmospheric — a very different mix density than the other songs. |
+| `a_light_that_never_comes` | Linkin Park & Steve Aoki | 8 cleanly-labeled official stems including **separate Lead_Vocals + BG_Vocals** — the clearest harmony-vocal test case in the set. EDM/rock hybrid with a programmed "Effects" layer. Stems: [`linkin-park-a-light-that-never-comes-remix-stems`](https://archive.org/details/linkin-park-a-light-that-never-comes-remix-stems) on archive.org. |
 
 **Licensing note on `nude` and `a_light_that_never_comes`:** these are
 ordinary commercial releases, not CC-licensed. Their *stems* were freely
@@ -133,7 +133,7 @@ files.
 
 A strong optional addition: **Bon Iver's self-titled album** has full
 official multitrack stems on archive.org (item
-`bon-iver-bon-iver-full-album-stems`, one ~2GB zip for the whole album,
+[`bon-iver-bon-iver-full-album-stems`](https://archive.org/details/bon-iver-bon-iver-full-album-stems), one ~2GB zip for the whole album,
 genre: indie-folk/orchestral with dense multi-tracked falsetto harmonies —
 probably the richest harmony-vocal test case available). It needs more
 prep work than the three above: the released tracks are deliberately

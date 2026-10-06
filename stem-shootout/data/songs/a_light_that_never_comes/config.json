@@ -2,7 +2,7 @@
   "song_name": "A Light That Never Comes",
   "artist": "Linkin Park & Steve Aoki",
   "album": "single (2013)",
-  "license_note": "Commercial release, not CC. Stems were freely distributed for an official remix contest and are already public (archive.org item 'linkin-park-a-light-that-never-comes-remix-stems'); the mixdown used here is a peak-normalized SUM of those official stems (same methodology MUSDB18 uses), not an independently sourced master \u2014 see README.",
+  "license_note": "Commercial release, not CC. Stems were freely distributed for an official remix contest and are already public (archive.org item 'linkin-park-a-light-that-never-comes-remix-stems' — https://archive.org/details/linkin-park-a-light-that-never-comes-remix-stems); the mixdown used here is a peak-normalized SUM of those official stems (same methodology MUSDB18 uses), not an independently sourced master \u2014 see README.",
   "genre_notes": "EDM/rock hybrid, separate Lead_Vocals + BG_Vocals stems (real harmony test case), electronic Effects layer",
   "mixdown": "mixdown.wav",
   "raw_multitrack_dir": "reference_raw/",

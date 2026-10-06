@@ -2,7 +2,7 @@
   "song_name": "Nude",
   "artist": "Radiohead",
   "album": "In Rainbows",
-  "license_note": "Commercial release, not CC. Stems were freely distributed for a 2008 remix contest and are already public (archive.org item 'nudestems'); the mixdown used here is a peak-normalized SUM of those official stems (same methodology MUSDB18 uses), not an independently sourced master \u2014 see README.",
+  "license_note": "Commercial release, not CC. Stems were freely distributed for a 2008 remix contest and are already public (archive.org item 'nudestems' — https://archive.org/details/nudestems); the mixdown used here is a peak-normalized SUM of those official stems (same methodology MUSDB18 uses), not an independently sourced master \u2014 see README.",
   "genre_notes": "art-rock, single falsetto lead vocal (no harmony layer), sparse arrangement with atmospheric strings",
   "mixdown": "mixdown.wav",
   "raw_multitrack_dir": "reference_raw/",

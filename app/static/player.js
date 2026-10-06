@@ -3,12 +3,17 @@ const playerDiv = document.getElementById('player');
 const form = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
 
-let tracks = {}; // stem_name -> { wavesurfer, muted, soloed, volume, notes, synthOn, redraw }
+let tracks = {}; // stem_name -> { wavesurfer, muted, soloed, volume, notes, synthOn, isDrum, roll, timeEl }
 let pollTimer = null;
 let tickTimer = null;
 let transcribeTimer = null;
+let masterTickTimer = null;
 
-const METHOD_LABEL = { basic_pitch: 'Basic Pitch (polyphonic)', pyin: 'pYIN (single melody line)' };
+const METHOD_LABEL = {
+  basic_pitch: 'Basic Pitch (polyphonic)',
+  pyin: 'pYIN (single melody line)',
+  onset_classify: 'onset + spectral heuristic (experimental, unverified — see HANDOFF.md)',
+};
 
 async function fetchUploads() {
   const res = await fetch('/api/uploads');
@@ -37,8 +42,8 @@ async function refreshList(selectedId) {
 }
 
 function stopTimers() {
-  for (const t of [pollTimer, tickTimer, transcribeTimer]) if (t) clearInterval(t);
-  pollTimer = tickTimer = transcribeTimer = null;
+  for (const t of [pollTimer, tickTimer, transcribeTimer, masterTickTimer]) if (t) clearInterval(t);
+  pollTimer = tickTimer = transcribeTimer = masterTickTimer = null;
 }
 
 // Without this, switching uploads leaves the previous song's audio playing invisibly.
@@ -115,7 +120,7 @@ function renderTranscribeBox(box, upload) {
     text = `<span class="status-error">Transcription failed: ${escapeHtml(upload.transcribe_error)}</span>`;
     button = 'Try again';
   } else {
-    text = 'Not transcribed to MIDI yet. Takes about a minute; drums aren\'t supported yet.';
+    text = 'Not transcribed to MIDI yet. Takes about a minute.';
     button = 'Transcribe to MIDI';
   }
   box.innerHTML = `<p>${text}</p>`;
@@ -154,6 +159,10 @@ function watchTranscription(id, box) {
   transcribeTimer = setInterval(check, 3000);
 }
 
+function songDuration() {
+  return Math.max(0, ...Object.values(tracks).map((t) => t.wavesurfer.getDuration() || 0));
+}
+
 function songTime() {
   const first = Object.values(tracks)[0];
   return first ? first.wavesurfer.getCurrentTime() : 0;
@@ -163,13 +172,37 @@ function anyPlaying() {
   return Object.values(tracks).some((t) => t.wavesurfer.isPlaying());
 }
 
+function seekAll(time) {
+  for (const t of Object.values(tracks)) t.wavesurfer.setTime(time);
+  restartSynthIfPlaying();
+}
+
 function synthParts() {
-  return Object.values(tracks).filter((t) => t.synthOn && t.notes).map((t) => ({ notes: t.notes, volume: t.volume }));
+  return Object.values(tracks)
+    .filter((t) => t.synthOn && t.notes)
+    .map((t) => ({ notes: t.notes, volume: t.volume, isDrum: t.isDrum }));
 }
 
 function restartSynthIfPlaying() {
   synth.stop();
   if (anyPlaying() && synthParts().length) synth.start(songTime, anyPlaying, synthParts);
+}
+
+function updateTimecodes() {
+  const master = document.getElementById('master-time');
+  if (!master) return;
+  const duration = songDuration();
+  const now = songTime();
+  master.textContent = `${formatTimecode(now)} / ${formatTimecode(duration)}`;
+  const fill = document.getElementById('master-bar-fill');
+  if (fill) fill.style.width = duration ? `${(now / duration) * 100}%` : '0%';
+  for (const t of Object.values(tracks)) {
+    if (t.timeEl) t.timeEl.textContent = formatTimecode(t.wavesurfer.getCurrentTime());
+    if (t.playhead) {
+      const d = t.wavesurfer.getDuration();
+      t.playhead.style.left = d ? `${(t.wavesurfer.getCurrentTime() / d) * 100}%` : '0%';
+    }
+  }
 }
 
 function renderDone(upload) {
@@ -195,39 +228,57 @@ function renderDone(upload) {
     watchTranscription(upload.id, transcribeBox);
   }
 
+  // --- Master transport: one set of controls and one timecode for every stem together ---
   const transport = document.createElement('div');
-  transport.className = 'transport';
-  const playAllBtn = document.createElement('button');
-  playAllBtn.textContent = 'Play all';
-  playAllBtn.onclick = () => {
+  transport.className = 'master-transport';
+  transport.innerHTML = `
+    <button id="play-all">Play all</button>
+    <button id="pause-all">Pause all</button>
+    <button id="stop-all">Stop all</button>
+    <span class="time-readout" id="master-time">0:00.00 / 0:00.00</span>
+    <div class="master-bar" id="master-bar"><div class="master-bar-fill" id="master-bar-fill"></div></div>
+  `;
+  playerDiv.appendChild(transport);
+  transport.querySelector('#play-all').onclick = () => {
     Object.values(tracks).forEach((t) => t.wavesurfer.play());
     if (synthParts().length) synth.start(songTime, anyPlaying, synthParts);
   };
-  const stopAllBtn = document.createElement('button');
-  stopAllBtn.textContent = 'Stop all';
-  stopAllBtn.onclick = () => {
+  transport.querySelector('#pause-all').onclick = () => {
+    synth.stop();
+    Object.values(tracks).forEach((t) => t.wavesurfer.pause());
+  };
+  transport.querySelector('#stop-all').onclick = () => {
     synth.stop();
     Object.values(tracks).forEach((t) => t.wavesurfer.stop());
+    updateTimecodes();
   };
-  transport.append(playAllBtn, stopAllBtn);
-  playerDiv.appendChild(transport);
+  transport.querySelector('#master-bar').onclick = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    seekAll(((e.clientX - rect.left) / rect.width) * songDuration());
+  };
+  masterTickTimer = setInterval(updateTimecodes, 100);
 
   for (const [stemName, url] of Object.entries(upload.stems)) {
     const midi = upload.midi[stemName];
+    const isDrum = stemName === 'drums';
     const track = document.createElement('div');
     track.className = 'track';
 
     const controls = document.createElement('div');
     controls.className = 'track-controls';
     const label = document.createElement('span');
+    label.className = 'stem-label';
     label.textContent = stemName;
+    const timeEl = document.createElement('span');
+    timeEl.className = 'track-time';
+    timeEl.textContent = '0:00.00';
     const muteBtn = document.createElement('button');
     muteBtn.textContent = 'Mute';
     const soloBtn = document.createElement('button');
     soloBtn.textContent = 'Solo';
     const volume = document.createElement('input');
     Object.assign(volume, { type: 'range', min: 0, max: 1, step: 0.01, value: 1 });
-    controls.append(label, muteBtn, soloBtn, volume);
+    controls.append(label, timeEl, muteBtn, soloBtn, volume);
 
     let synthBtn = null;
     if (midi) {
@@ -246,15 +297,12 @@ function renderDone(upload) {
     playerDiv.appendChild(track);
 
     const wavesurfer = WaveSurfer.create({ container: waveformDiv, height: 60, url });
-    const t = tracks[stemName] = { wavesurfer, muted: false, soloed: false, volume: 1, notes: null, synthOn: false, redraw: null };
+    const t = tracks[stemName] = {
+      wavesurfer, muted: false, soloed: false, volume: 1, notes: null, synthOn: false, isDrum, roll: null, timeEl, playhead: null,
+    };
 
     // Clicking one waveform used to move only that stem, putting the others out of sync.
-    wavesurfer.on('interaction', (time) => {
-      for (const other of Object.values(tracks)) {
-        if (other !== t) other.wavesurfer.setTime(time);
-      }
-      restartSynthIfPlaying();
-    });
+    wavesurfer.on('interaction', (time) => seekAll(time));
     wavesurfer.on('finish', () => { if (!anyPlaying()) synth.stop(); });
 
     if (midi) {
@@ -264,33 +312,31 @@ function renderDone(upload) {
       const playhead = document.createElement('div');
       playhead.className = 'playhead';
       rollWrap.append(canvas, playhead);
+      t.playhead = playhead;
       const caption = document.createElement('div');
       caption.className = 'caption';
-      caption.textContent = `${midi.note_count} notes · ${METHOD_LABEL[midi.method] || midi.method} · loading…`;
-      track.append(rollWrap, caption);
+      caption.textContent = 'loading…';
+      const hint = document.createElement('div');
+      hint.className = 'caption hint';
+      hint.textContent = 'Click empty space to add a note, drag to move or resize, Delete to remove.';
+      track.append(rollWrap, caption, hint);
+
+      const roll = createPianoRoll(canvas, {
+        getDuration: () => wavesurfer.getDuration(),
+        isDrum,
+        onChange: (notes) => saveNotes(upload.id, stemName, notes, caption, midi.method),
+      });
+      t.roll = roll;
 
       Promise.all([
         fetch(midi.notes_url).then((r) => r.json()),
         new Promise((resolve) => wavesurfer.once('ready', resolve)),
       ]).then(([{ notes }]) => {
         t.notes = notes;
-        t.redraw = () => drawRoll(canvas, notes, wavesurfer.getDuration());
-        t.redraw();
-        const pitches = notes.map((n) => n[0]);
-        caption.textContent = `${notes.length} notes · ${METHOD_LABEL[midi.method] || midi.method}` +
-          (notes.length ? ` · range ${noteName(Math.min(...pitches))}–${noteName(Math.max(...pitches))}` : '');
+        roll.setNotes(notes);
+        setCaption(caption, stemName, notes, midi.method);
       });
 
-      wavesurfer.on('timeupdate', (time) => {
-        const d = wavesurfer.getDuration();
-        if (d) playhead.style.left = `${(time / d) * 100}%`;
-      });
-      canvas.onclick = (e) => {
-        const d = wavesurfer.getDuration();
-        const time = (e.offsetX / canvas.clientWidth) * d;
-        Object.values(tracks).forEach((o) => o.wavesurfer.setTime(time));
-        restartSynthIfPlaying();
-      };
       synthBtn.onclick = () => {
         t.synthOn = !t.synthOn;
         synthBtn.style.fontWeight = t.synthOn ? 'bold' : 'normal';
@@ -299,7 +345,7 @@ function renderDone(upload) {
     } else if (upload.untranscribable.includes(stemName) && upload.transcribe_status === 'done') {
       const caption = document.createElement('div');
       caption.className = 'caption';
-      caption.textContent = 'No MIDI — drums need a dedicated drum transcriber, which isn\'t built yet.';
+      caption.textContent = 'No MIDI for this stem.';
       track.appendChild(caption);
     }
 
@@ -320,6 +366,35 @@ function renderDone(upload) {
   }
 }
 
+function setCaption(el, stemName, notes, method) {
+  const label = METHOD_LABEL[method] || method;
+  if (stemName === 'drums') {
+    el.textContent = `${notes.length} hits · ${label}`;
+    return;
+  }
+  const pitches = notes.map((n) => n[0]);
+  el.textContent = `${notes.length} notes · ${label}` +
+    (notes.length ? ` · range ${noteName(Math.min(...pitches))}–${noteName(Math.max(...pitches))}` : '');
+}
+
+async function saveNotes(uploadId, stemName, notes, caption, method) {
+  const prev = caption.textContent;
+  caption.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/api/uploads/${uploadId}/midi/${stemName}/notes`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    tracks[stemName].notes = notes;
+    setCaption(caption, stemName, notes, method);
+    caption.textContent += ' · saved';
+  } catch (err) {
+    caption.textContent = prev + ' · save failed, will retry on next edit';
+  }
+}
+
 function applyMix() {
   const anySoloed = Object.values(tracks).some((t) => t.soloed);
   for (const t of Object.values(tracks)) {
@@ -331,7 +406,7 @@ function applyMix() {
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => Object.values(tracks).forEach((t) => t.redraw && t.redraw()), 150);
+  resizeTimer = setTimeout(() => Object.values(tracks).forEach((t) => t.roll && t.roll.redraw()), 150);
 });
 
 form.onsubmit = async (e) => {

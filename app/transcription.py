@@ -2,8 +2,9 @@
 
 Method per stem follows HANDOFF.md's architecture: Basic Pitch for
 polyphonic material ("other"), pYIN single-line pitch tracking for vocals
-and bass. Drums aren't pitched, so neither method fits them; a dedicated
-drum transcriber is a separate, not-yet-built step.
+and bass, and an onset-classification heuristic for drums (see
+drum_transcription.py — unlike the other two, not yet measured against
+ground truth).
 
 Note times are real seconds, not snapped to a beat grid — tempo and beat
 detection come later, when notation export needs them.
@@ -16,13 +17,14 @@ import numpy as np
 import pretty_midi
 from scipy.signal import medfilt
 
-METHOD_BY_STEM = {"vocals": "pyin", "bass": "pyin", "other": "basic_pitch"}
+METHOD_BY_STEM = {"vocals": "pyin", "bass": "pyin", "other": "basic_pitch", "drums": "onset_classify"}
 
 # Search range for the single-line tracker; narrower is faster and avoids octave errors.
 PYIN_RANGES = {"bass": ("E1", "G4"), "vocals": ("C2", "C6")}
 
 # General MIDI programs, so a downloaded .mid sounds roughly right in other software.
-GM_PROGRAM = {"vocals": 53, "bass": 33, "other": 0}  # Voice Oohs, Electric Bass (finger), Acoustic Grand Piano
+# Drums ignore this — is_drum=True selects the GM percussion map by note number instead.
+GM_PROGRAM = {"vocals": 53, "bass": 33, "other": 0, "drums": 0}  # Voice Oohs, Electric Bass (finger), Acoustic Grand Piano
 
 PYIN_SR = 22050
 PYIN_HOP = 256
@@ -77,12 +79,30 @@ def transcribe_stem(stem_name: str, audio_path: Path) -> pretty_midi.PrettyMIDI:
     method = METHOD_BY_STEM[stem_name]
     if method == "basic_pitch":
         midi = transcribe_basic_pitch(audio_path)
+    elif method == "onset_classify":
+        from .drum_transcription import transcribe_drums
+        midi = transcribe_drums(audio_path)
     else:
         midi = transcribe_pyin(audio_path, *PYIN_RANGES[stem_name])
     for instrument in midi.instruments:
-        instrument.program = GM_PROGRAM[stem_name]
+        if not instrument.is_drum:
+            instrument.program = GM_PROGRAM[stem_name]
         instrument.name = stem_name
     return midi
+
+
+def save_notes(midi_path: Path, notes: list[list[float]], is_drum: bool, program: int) -> int:
+    """Overwrites a stem's MIDI file with edited notes. Returns the new note count."""
+    midi = pretty_midi.PrettyMIDI()
+    instrument = pretty_midi.Instrument(program=program, is_drum=is_drum)
+    for pitch, start, end, velocity in notes:
+        if end > start:
+            instrument.notes.append(pretty_midi.Note(
+                velocity=max(1, min(127, int(velocity))), pitch=int(pitch), start=float(start), end=float(end),
+            ))
+    midi.instruments.append(instrument)
+    midi.write(str(midi_path))
+    return len(instrument.notes)
 
 
 def transcribe_stems(

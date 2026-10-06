@@ -19,6 +19,13 @@ function formatTime(isoString) {
   return new Date(isoString).toLocaleString();
 }
 
+function formatTimecode(seconds) {
+  if (seconds == null || !isFinite(seconds)) return '0:00.00';
+  const m = Math.floor(seconds / 60);
+  const s = (seconds - m * 60).toFixed(2).padStart(5, '0');
+  return `${m}:${s}`;
+}
+
 function noteName(midiPitch) {
   const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   return names[midiPitch % 12] + (Math.floor(midiPitch / 12) - 1);

@@ -56,6 +56,12 @@ dependency doesn't exist for Python 3.12; it runs on its bundled ONNX model.
 Smoke test for transcription (synthetic audio, real code):
 `venv/bin/python -m tests.smoke_transcription`.
 
+**Don't try `madmom` or `omnizart` for drum transcription** — both dead
+ends on this machine (unmaintained APIs removed from Python/numpy years
+ago, and a TensorFlow version with no Python 3.12 build, respectively).
+Full story in HANDOFF.md's Phase 3 addendum. Drums use a from-scratch
+onset+spectral heuristic (`app/drum_transcription.py`) instead.
+
 ## Database
 
 MySQL database `musicmod_dev`, scoped user `musicmod_app` (not root — see

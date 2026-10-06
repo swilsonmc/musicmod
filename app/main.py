@@ -4,13 +4,13 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile
+from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db
 from .separation import separate_upload
-from .transcription import METHOD_BY_STEM, notes_json, transcribe_stems
+from .transcription import GM_PROGRAM, METHOD_BY_STEM, notes_json, save_notes, transcribe_stems
 
 app = FastAPI(title="musicmod")
 
@@ -236,6 +236,18 @@ def get_midi(upload_id: int, stem_name: str):
 def get_midi_notes(upload_id: int, stem_name: str):
     path, _ = _midi_path(upload_id, stem_name)
     return {"notes": notes_json(path)}
+
+
+@app.put("/api/uploads/{upload_id}/midi/{stem_name}/notes")
+def put_midi_notes(upload_id: int, stem_name: str, notes: list[list[float]] = Body(..., embed=True)):
+    path, _ = _midi_path(upload_id, stem_name)
+    is_drum = stem_name == "drums"
+    count = save_notes(path, notes, is_drum, GM_PROGRAM.get(stem_name, 0))
+    db.execute(
+        "UPDATE midi_tracks SET note_count = %s WHERE upload_id = %s AND stem_name = %s",
+        (count, upload_id, stem_name),
+    )
+    return {"note_count": count}
 
 
 @app.get("/api/uploads/{upload_id}/stems/{stem_name}")

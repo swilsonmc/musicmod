@@ -103,27 +103,45 @@ change them in `app/config.py` and `deploy/` if yours differ.
 The first separation downloads about 1.7 GB of model files, cached in
 `storage/models/` for every run after.
 
-## Phase 3 (in progress): transcription to MIDI
+## Phase 3 (in progress): transcription to MIDI, and editing it
 
-After separation finishes, each pitched stem is converted into notes
-automatically (or on demand with a **Transcribe** button):
+After separation finishes, every stem — including drums now — is
+converted into notes automatically (or on demand with a **Transcribe**
+button):
 
 | Stem | Method | Why |
 |---|---|---|
 | other | [Basic Pitch](https://github.com/spotify/basic-pitch) (Spotify) | handles many simultaneous notes — chords, piano, strummed guitar |
 | vocals, bass | pYIN pitch tracking (librosa) | follows one melody line; fewer stray notes on single-voice parts |
-| drums | — | not pitched; needs a dedicated drum transcriber, not built yet |
+| drums | onset detection + a spectral-shape heuristic | kick/snare/hi-hat by where each hit's energy sits in the spectrum — **not a trained model, and not yet measured against ground truth; see HANDOFF.md** |
 
 It's cheap: about a minute for a 4½-minute song, versus 81 minutes to
 separate it. Each transcribed stem gets a piano-roll strip aligned under
 its waveform, a **Synth** toggle that plays the detected notes alongside
 the real audio (the quickest way to judge how good the transcription
-is), and a **MIDI ↓** download. Notes are in real time, not snapped to a
-beat grid — tempo detection comes with notation export later.
+is — drums get real-sounding synthesized kick/snare/hi-hat hits, not
+pitched beeps), and a **MIDI ↓** download. Notes are in real time, not
+snapped to a beat grid — tempo detection comes with notation export later.
 
-`tests/smoke_transcription.py` checks the wiring on synthetic audio with
-known notes: `venv/bin/python -m tests.smoke_transcription`. Real-music
-accuracy isn't measured yet — that needs songs with real ground-truth MIDI.
+**The piano roll is editable.** Click empty space to add a note, drag a
+note to move it (time and pitch together), drag its right edge to
+resize, select and press Delete/Backspace to remove it. Every edit saves
+to the server immediately — no separate save button, nothing to forget.
+
+**Master transport**: Play all / Pause all / Stop all, a combined
+timecode (`elapsed / total`), and a seek bar that moves every stem
+together. Each stem also shows its own live timecode. Why both: the
+stems are independent `<audio>` elements, each with its own playback
+clock — in testing, four stems that started in perfect sync had drifted
+about 1.4 milliseconds apart after 7.6 seconds of playback. Inaudible at
+that scale, but real, and the per-stem timecodes are there so it's
+visible rather than silently assumed away. See "Known weaknesses" in
+`HANDOFF.md` for what fixing this properly would take.
+
+`tests/smoke_transcription.py` checks the transcription wiring on
+synthetic audio with known notes: `venv/bin/python -m
+tests.smoke_transcription`. Real-music accuracy isn't measured yet for
+any of the three methods — that needs songs with real ground-truth MIDI.
 
 ## Phase 1: the stem-separation model shootout
 

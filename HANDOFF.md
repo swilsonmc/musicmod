@@ -354,17 +354,18 @@ only the small `config.json`/`reference_mapping.json` per song do, which
   the hardest for every model (negative vocals SDR across the board).
 - **`nude`** — Radiohead, "Nude" (*In Rainbows*). 5 cleanly-labeled
   official stems from a 2008 remix contest (archive.org item
-  `nudestems`), already public. Single falsetto lead, no harmony layer.
+  [`nudestems`](https://archive.org/details/nudestems)), already public.
+  Single falsetto lead, no harmony layer.
   **Not CC** — `mixdown.wav` here is a peak-normalized sum of the official
   stems (same methodology MUSDB18 itself uses for its mixtures), not an
   independently-sourced master. Easiest song in the catalog.
 - **`a_light_that_never_comes`** — Linkin Park & Steve Aoki. 8
   cleanly-labeled official stems (archive.org item
-  `linkin-park-a-light-that-never-comes-remix-stems`) including
+  [`linkin-park-a-light-that-never-comes-remix-stems`](https://archive.org/details/linkin-park-a-light-that-never-comes-remix-stems)) including
   **separate Lead_Vocals + BG_Vocals** — the clearest harmony-vocal case
   in the set. Same non-CC/synthetic-mixdown caveat as `nude`.
 - **`perth`** — Bon Iver. Official stems from the 2012 "Stems Project"
-  (archive.org item `bon-iver-bon-iver-full-album-stems`, a ~2GB
+  (archive.org item [`bon-iver-bon-iver-full-album-stems`](https://archive.org/details/bon-iver-bon-iver-full-album-stems), a ~2GB
   full-album zip — only this song's files were fetched, via
   `zip_range_extract.py`). Track filenames are deliberately obfuscated
   place names; the vocals/drums/bass/other split was built automatically
@@ -563,6 +564,88 @@ their outputs to stems; model names are in `app/config.py`. The `stems`
 table stores a free-text stem name and the player draws whatever stems
 an upload has, so more stems need no schema or player changes.
 
+### Addendum 2026-10-06 — fine-tuning, with cloud GPU credits available
+
+The owner has remaining cloud-session credits and is willing to spend
+them on this research specifically (not just more `--list_models`
+browsing). That makes an actual fine-tuning attempt worth scoping, not
+just picking an off-the-shelf model.
+
+**Use MoisesDB, not hand-built training data.** It's a real, licensed
+dataset built for exactly this: stems across roughly 11 categories
+(vocals, bass, drums, **guitar, piano/keys, strings, wind, other**,
+plus vocal sub-types), from [Moises.ai](https://moisesai.github.io/moisesdb/).
+That's a much better foundation than trying to bootstrap training data
+from scratch — check its license terms for what this project's use
+(private, personal, non-distributed — see "Ground rules" above) permits,
+and its size against available storage before downloading.
+
+Audio-separator is inference-only — it runs existing checkpoints, it
+doesn't train them. Fine-tuning Demucs (the `htdemucs_6s` 6-stem variant
+is the natural starting point, since it already separates guitar and
+piano) means using [the Demucs training code](https://github.com/facebookresearch/demucs)
+directly, on a GPU, which is exactly what cloud credits buy that this
+laptop can't. Scope a fine-tune (continuing from the existing
+`htdemucs_6s` checkpoint on a MoisesDB subset), not training from zero —
+far cheaper, and the goal is extending a working model, not replacing it.
+Report back: what it cost, how long it took, and — same rule as
+everywhere else in this project — **scored against real held-out stems**,
+not judged by ear, before anyone trusts it over the current models.
+
+### Addendum 2026-10-06 — a concrete failure case, and the owner's question about learning from it
+
+Running the app on Rush's "Jacob's Ladder" (*Power Windows*), the owner
+noticed the vocals stem carries audible bleed during instrumental
+sections with no singing — a synthesizer in a high register, probably
+mistaken for Geddy Lee's high vocal range. The question: can the system
+be taught from corrections like "no vocals should exist from timecode
+X to Y here — that content belongs in 'other'"?
+
+Short answer: **not by editing one song's output** — that's real signal
+worth capturing, but it's not training data by itself, and the right use
+of it is different from what "teach the model" first suggests:
+
+- **A single hand-corrected clip can't fine-tune anything safely.** A
+  few seconds of one song is a tiny, unrepresentative sample; fine-tuning
+  a deep model on that risks overfitting to one song's quirks and
+  degrading everything else it does well (catastrophic forgetting), for
+  no measurable gain this project could actually verify.
+- **What the correction actually is: a labeled hard-case report.** That's
+  genuinely valuable — it's the same kind of real finding the phase 1
+  shootout already runs on (e.g. the Kim_Vocal_2 filename-collision bug,
+  the Perth gain-staging issue). The useful next step isn't training on
+  it, it's **collecting many of these** as a structured log (song,
+  timecode range, stem, what's wrong) rather than acting on each one in
+  isolation. A few corrections scored against one song prove nothing; a
+  few dozen across many songs start to show a *pattern* (e.g. "this model
+  confuses high synth leads with falsetto vocals specifically in prog
+  rock/synth-heavy mixes") — that's a finding worth testing a different
+  model against, the same evidence-based way phase 1 picked models in the
+  first place.
+- **High synth vs. falsetto vocals is a known, general hard case for
+  these models**, not a bug specific to this project — most public
+  separation models are trained on datasets like MUSDB18, which skews
+  toward certain genres/mixes, so other genres' specific instrument
+  choices (prog-rock synth leads, for instance) are underrepresented. If
+  the MoisesDB fine-tune above happens, specifically check whether it
+  improves this exact confusion before and after — "Jacob's Ladder"'s
+  flagged time range is a ready-made before/after test case.
+- **What's cheap and useful right now, independent of any training
+  question**: a "mark this region as wrong" feature in the app itself —
+  record (upload, stem, start, end, what's wrong) when the owner notices
+  bleed like this during normal listening. That's low effort, immediately
+  useful (could auto-mute/duck the flagged region in-app as a quick fix
+  for that one song), and builds exactly the structured log the point
+  above describes, for free, as a side effect of normal use. Not built
+  yet — a real candidate for a future local-session task, separate from
+  this cloud research task.
+
+If a real multitrack release of "Jacob's Ladder" or another Rush song
+ever surfaces publicly (same archive.org search method as
+`CONTRIBUTING.md` describes), it would upgrade this from "one flagged
+clip" to an actual scored catalog entry — worth a quick search, low
+priority next to the fine-tuning work above.
+
 ## Phase 3 status — transcription working, note editing not started (2026-10-05)
 
 Built: `app/transcription.py` converts each pitched stem to MIDI, run
@@ -614,20 +697,104 @@ uploads left the previous song's audio loaded (and playing, if it was).
   or breaths). A cheap sanity check that pitch numbering is right: on
   "Noah's Dove" all three stems' most common pitch classes fall in one
   seven-note scale.
-- **Drums**: needs a dedicated drum-transcription model (e.g. ADTOF);
-  nothing is built.
+- **Drums**: now transcribed by a heuristic (see the addendum below) —
+  not a trained model, not measured, and the one sanity check available
+  (snare count) suggests it's miscalibrated.
 - **Notes aren't on a beat grid** — real seconds, tempo 120 in the MIDI
   file. Beat tracking is needed before MusicXML/notation export.
 
-### Open decision — the note editor (waiting on the owner)
+### Note editor decision — resolved 2026-10-06
 
-The architecture above picked the open-source **Signal** web piano roll
-for editing. Looking closer before building: Signal is a complete
-standalone app (React/TypeScript, its own build), not a component, so
-using it here means forking it, building it with a Node toolchain, and
-adding load-from/save-to-our-server to it — then keeping that fork
-current. The alternative is adding editing (select, move, resize, delete,
-add notes, save) to the piano roll this app already draws, which is
-already aligned to the audio, needs no build step, and stays light on the
-target laptop, at the cost of writing and maintaining the editing code
-ourselves. The owner was asked which to do; record the answer here.
+Owner chose **option 1**: extend this app's own piano roll rather than
+fork Signal. Built — see the next section.
+
+## Phase 3 addendum — note editing, drums, master transport (2026-10-06)
+
+### Note editing
+
+`app/static/pianoroll.js`'s `createPianoRoll()` makes each stem's canvas
+interactive: click empty space to add a note (default length 0.3s,
+velocity 100), drag a note to move it, drag within ~7px of its right
+edge to resize, click to select, Delete/Backspace to remove. Every
+discrete edit (not every mid-drag frame) calls `onChange(notes)`, which PUTs
+to `/api/uploads/{id}/midi/{stem}/notes` and rewrites that stem's `.mid`
+file via `transcription.save_notes()` — immediate, no save button.
+
+One real bug caught while testing this against the running server (not
+just read by eye): the mouseup handler reset `selected = -1`
+unconditionally after sorting the notes array by start time, which
+silently broke "click to select, then press Delete" — a fresh click
+would select correctly, but the very act of releasing the mouse erased
+that selection before any key could use it. Fixed by capturing the note
+*reference* before the sort and re-finding its new index with
+`indexOf()` afterward, since sorting reorders array positions but not
+object identity. Caught by driving the real running app end-to-end in
+the browser (adding, saving, reloading, and confirming via direct API
+calls), not by reading the code — the logic looked correct on inspection.
+
+### Drum transcription — a heuristic, explicitly not a trained model
+
+Spent real effort trying to avoid building this by hand first:
+
+- **madmom** (the standard onset/beat-tracking library): unmaintained.
+  `pip install` fails outright (needs Cython in the build-isolation
+  environment); forcing `--no-build-isolation` gets it to install, but it
+  then fails to *import* (`collections.MutableSequence`, removed from
+  Python in 3.10) and, after patching that one line, fails again
+  (`np.float`, removed from numpy in 1.24). Both APIs were deprecated for
+  years before removal — this is a library nobody has updated for the
+  Python/numpy most of this project already runs on, not a one-line fix.
+  Abandoned rather than continuing to patch a dead dependency.
+- **omnizart** (has a drum-transcription mode): needs `pyaudio`, which
+  needs the system's PortAudio headers (not installed, needs `sudo apt`),
+  and separately needs TensorFlow, which hits the exact same
+  no-Python-3.12-build wall Basic Pitch did.
+
+Built instead, in `app/drum_transcription.py`: onset detection
+(`librosa.onset.onset_detect`) finds hit times, then each hit is
+classified into kick/snare/closed-hi-hat by where its energy sits in the
+spectrum (low-frequency-dominant → kick, high-frequency-or-noisy →
+hi-hat, else → snare) — the same kind of cheap, explainable heuristic
+`stem-shootout/scripts/classify_tracks.py` already uses elsewhere in this
+project, not a trained classifier.
+
+**Not measured, and the one real check available is a bad sign**: on
+Mr Shankley's drum stem (364 onsets), the classifier found 346 kicks, 13
+snares, and the rest hi-hats — a 13-snare count for a full rock song is
+implausible (snare usually anchors beats 2 and 4 throughout) and points
+at miscalibrated thresholds, specifically that too much is falling into
+the kick bucket. Didn't hand-tune it: adjusting thresholds without ground
+truth just moves the error somewhere else convincingly. Fix by scoring
+against real drum-hit ground truth (Slakh2100 again, or any MIDI-aligned
+multitrack set with a real drum part) before trusting the output, the
+same rule applied everywhere else in this project.
+
+### Master transport and the sync-drift finding
+
+`app/static/player.js` adds Play all / Pause all / Stop all, a combined
+timecode, and a click-anywhere seek bar driving every stem's
+`wavesurfer.setTime()` together, plus a live per-stem timecode. Built
+because the owner asked to see exactly where every stem is in time, not
+just assume they match.
+
+That turned up a real, measured finding: after 7.6 seconds of
+synchronized playback (all stems started together via the existing
+seek-sync code), the four stems' internal clocks had already drifted
+about **1.4 milliseconds** apart (7.614967s vs 7.613537s). Each stem is
+an independent `<audio>` element with its own playback clock — nothing
+currently forces them to stay locked together, only to start together.
+Inaudible at this scale, untested over a full song or many pause/resume
+cycles. A real fix (if it ever becomes audible) is loading all stems as
+`AudioBuffer`s into one shared `AudioContext` and triggering them from a
+single clock, which is a bigger change than this session made — not
+attempted here, flagged for whoever hits it.
+
+### Drum synth voices
+
+The existing WebAudio preview synth played every note as a tuned
+triangle-wave oscillator, which would make drum hits sound like random
+pitched beeps — GM drum note numbers (36/38/42) aren't tones. Added
+`drumVoice()` in `pianoroll.js`: a pitch-dropping sine thump for kick, a
+filtered noise burst for snare/hi-hat. Confirmed via the browser that
+toggling a drums stem's Synth button actually creates `AudioBufferSourceNode`
+and `OscillatorNode` instances, not the tonal voice path.
