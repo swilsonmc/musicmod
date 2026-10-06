@@ -646,6 +646,153 @@ ever surfaces publicly (same archive.org search method as
 clip" to an actual scored catalog entry — worth a quick search, low
 priority next to the fine-tuning work above.
 
+## Cloud research task: results (2026-10-06)
+
+Measured, not judged by ear, per Phase 1's rule. Short version:
+**don't build either split into the app as currently available** — the
+real numbers don't support it yet. Harness code was generalized first
+(bus_reference.py/align.py/score.py/aggregate_results.py now discover
+whatever buckets a song's mapping defines, instead of assuming exactly
+4) so this kind of experiment doesn't need one-off hacks — that's a
+permanent, reusable change, not just scaffolding for this task.
+
+### Guitar/piano split (`htdemucs_6s.yaml`)
+
+`a_light_that_never_comes` already had separate `Ac__Guitar`,
+`El__Guitar`, and `Piano` raw tracks (previously folded into "other") —
+exactly the gap flagged above, and it turned out to already be in the
+catalog. Added a `a_light_that_never_comes_6stem` entry that re-buckets
+those same tracks (guitar = both guitar tracks combined, since the
+model only outputs one combined guitar stem) and scored `htdemucs_6s`
+against them:
+
+| stem | SDR | note |
+|---|---|---|
+| guitar | **-6.13dB** | SIR -33dB — the estimate is dominated by leaked content, not guitar |
+| piano | **0.01dB** | effectively silent relative to the reference |
+| other | -9.10dB | down from +0.63/+1.33 in the 4-stem version of this song — once guitar/piano are pulled out, the small Effects-only reference that's left doesn't match the model's leftover output either |
+| vocals | 5.90dB | drums | 11.93dB | bass | 0.01dB | all roughly consistent with the 4-stem result |
+
+Confirms Demucs's own README caveat about piano "not working great," and
+extends it to guitar being poor too, on this song at least. Full numbers
+in `data/songs/a_light_that_never_comes_6stem/results.json`.
+
+### Lead/backing vocal split (karaoke models)
+
+Two traps from the "what's available today" section above turned out to
+be real, not just theoretical:
+
+- `mel_band_roformer_karaoke_becruily.ckpt` (Roformer architecture) is
+  genuinely, not just apparently, impractical on this CPU-only
+  container: confirmed ~162 inference steps at ~24-25 seconds *each*
+  (not stalled — steady, consistent per-step timing), for an estimated
+  total around 66 minutes to process one ~5-minute vocal clip. That's
+  roughly 15-20x slower per minute of audio than every other model
+  tested in this whole project (Demucs variants: ~2s/it; MDX-Net
+  Kim_Vocal_2/UVR_MDXNET_KARA_2: finish in a few minutes total). Killed
+  by the background time limit at 30 minutes twice before this was
+  measured precisely. Not a bug or a hang — this specific checkpoint is
+  simply that much heavier. Don't default to Roformer-architecture
+  karaoke checkpoints without a GPU; the MDX-Net ones are the practical
+  choice on CPU-only hardware like the target laptop.
+- `UVR_MDXNET_KARA_2.onnx` (MDX-Net, same speed class as `Kim_Vocal_2`)
+  worked and finished quickly. But its output labels are the generic
+  `(Vocals)`/`(Instrumental)` — **not** `(Lead)`/`(Backing)` — confirming
+  the "karaoke usually means keep-lead-drop-backing" trap: these models
+  are trained to cleanly *remove* backing vocals from the kept output,
+  not to cleanly *preserve* them in the discarded one. There's no reason
+  to expect the discarded signal to be a good backing-vocal stem, and it
+  measured accordingly:
+
+| song | lead SDR | backing SDR |
+|---|---|---|
+| A Light That Never Comes (real Lead_Vocals/BG_Vocals ground truth) | 3.69dB | **-12.00dB** |
+| Discipline (real Lead vs. BV+Woo Voc ground truth, offset-corrected) | -5.93dB | **-13.41dB** |
+
+Lead recovery is modest at best (and actually worse than not splitting
+at all — this same song's plain vocals SDR was 11.60dB with the
+Roformer, 7.66dB with Kim_Vocal_2; splitting lead from backing loses a
+lot). Backing recovery fails outright both times. Discipline being worse
+than A Light That Never Comes on both metrics tracks with Phase 1's
+finding that Discipline's *first-stage* vocal extraction is already the
+hardest case in the catalog — chaining a second split on top of an
+already-poor extraction compounds the error, as expected.
+
+This was scored by a one-off script, not through the generalized
+harness — the same literal `(Vocals)`/`(Instrumental)` labels mean
+something different here (lead vs. backing) than when the same model
+runs on a full mixdown (vocals vs. everything), so forcing it through
+`canonicalize()` would have mislabeled it. If lead/backing splitting
+becomes worth pursuing later (e.g. a GPU and a fine-tuned model change
+this conclusion), it probably deserves its own small script in
+`stem-shootout/scripts/` rather than bending the mixdown-shaped harness
+around it.
+
+### Bohemian Rhapsody / stacked-harmony limits
+
+Not re-tested — the "realistic limits" section above already reasons
+through why this won't work with current separation models (shared
+voice/mic/room, moving in close harmony — nothing for timbre-based
+separation to grab onto), and the guitar/piano and lead/backing results
+just measured are consistent with that reasoning holding up: even
+*easier* splits than "each voice in a stacked harmony" are struggling.
+Spending real compute confirming an already-well-reasoned "this won't
+work" wasn't worth it this round. The two cheap experiments it suggests
+(stereo-position panning extraction, transcription-based harmony-line
+separation) remain untried and still look like the more promising paths
+if this gets revisited.
+
+### Fine-tuning scoping — blocked on both GPU and dataset access, not attempted
+
+**This cloud session has no GPU** (`nvidia-smi` not found, 4 CPU cores
+only), and this product's documented environment settings don't expose
+a GPU option the way the network-access toggle used earlier in this
+project did — checked before concluding this, not assumed. Whatever
+"cloud GPU credits" the owner has in mind, this specific session's
+compute isn't them. Actual fine-tuning needs either a different kind of
+cloud compute (a rented GPU instance — AWS/GCP/Lambda/RunPod/etc., paid
+for separately) or the owner's own machine if it ever gets a GPU.
+
+**MoisesDB itself** (researched, not downloaded):
+- 240 songs, ~45-47 artists, 12 genres, ~14h24m total — a real dataset
+  built for exactly this (hierarchical stems beyond the usual 4,
+  including guitar/piano/strings/wind categories).
+- License: CC BY-NC-SA 4.0 — compatible with this project's "private,
+  personal, non-distributed" ground rule.
+- Access: `pip install moisesdb` gets the Python library, but the
+  actual audio requires going to music.ai/research's download page and
+  clicking through there — not a bare public URL. Total size isn't
+  published anywhere found; a rough estimate from the stated duration
+  and a hierarchical multi-stem-per-song structure puts it at tens of
+  GB, plausibly more. This session has ~11GB free, nowhere near enough
+  for the likely full size regardless of the GPU question.
+- Deliberately not downloaded even a subset: no GPU to use it with yet,
+  and the download page's click-through wasn't tried on the owner's
+  behalf without them actually being present for whatever agreement
+  that involves.
+
+**What a real attempt needs, when both blockers are gone**: a GPU
+environment, the owner personally completing MoisesDB's download step,
+enough disk for the dataset plus checkpoints, Demucs's own training
+code (not audio-separator, which is inference-only) to continue
+training from the existing `htdemucs_6s` checkpoint on a MoisesDB
+subset (not from scratch), and — same rule as everywhere else in this
+project — scoring before/after against real held-out stems through this
+same harness before trusting it over the current models. "Jacob's
+Ladder"'s flagged high-synth/falsetto confusion (next section) is a
+ready-made before/after test case once that's possible.
+
+### Rush multitrack search
+
+Checked archive.org directly (same method `CONTRIBUTING.md` describes):
+zero results for "jacobs ladder multitrack" and zero for "rush
+multitracks stems remix." Rush's active years mostly predate the
+2000s–2010s remix-stem-release culture NIN/Radiohead/Linkin Park
+participated in (this catalog's other sources) — no evidence they ever
+did anything comparable. Nothing to add to the catalog from this; the
+Jacob's Ladder vocal-bleed finding stays a flagged observation, not a
+scored catalog entry, until/unless that changes.
+
 ## Phase 3 status — transcription working, note editing not started (2026-10-05)
 
 Built: `app/transcription.py` converts each pitched stem to MIDI, run
