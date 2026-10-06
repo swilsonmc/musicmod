@@ -798,3 +798,61 @@ pitched beeps — GM drum note numbers (36/38/42) aren't tones. Added
 filtered noise burst for snare/hi-hat. Confirmed via the browser that
 toggling a drums stem's Synth button actually creates `AudioBufferSourceNode`
 and `OscillatorNode` instances, not the tonal voice path.
+
+## Phase 3 addendum 2 — editing workflow, undo, zoom, master-bar alignment (2026-10-06)
+
+Everything below was requested and built in the same local session, tested
+live in the browser (not just read over) after a few false alarms turned
+out to be the browser caching the old `/static/*.js` during iterative
+testing, not real bugs — a fresh tab (not just a reload) was the reliable
+way to confirm a change actually took effect. Worth remembering for
+whoever edits `app/static/*.js` next.
+
+- **Editing is no longer auto-saved on every change.** Each roll keeps a
+  local in-memory buffer; **Save** (PUT to the server) and **Revert**
+  (discard the buffer, reload the last-saved notes) sit to the left of
+  each piano roll. The caption shows "unsaved changes" vs "saved" so it's
+  never ambiguous which state you're looking at.
+- **Ctrl+Z undoes the most recently edited roll**, globally — not scoped
+  to whichever element has keyboard focus. Each roll keeps its own
+  snapshot stack (capped at 50), pushed once per discrete action (not per
+  drag frame), so one undo reverses one whole gesture, including a batch
+  delete.
+- **Ctrl+drag marquee-selects multiple notes**; Ctrl+click toggles one
+  note in/out of the selection; Delete/Backspace removes everything
+  selected in one action. Selection is tracked by note *object reference*,
+  not array index — the earlier select-then-delete bug (see the previous
+  addendum) was exactly an index going stale after a sort, so this time
+  the data structure rules that whole bug class out rather than patching
+  around it.
+- **Per-roll zoom** (🔍+/🔍−, up to 24x): widens the roll's own scrollable
+  inner element; the browser's native horizontal scrollbar handles
+  panning, no custom pan code needed. Independent per stem, not
+  synchronized across tracks — zooming vocals doesn't zoom bass.
+- **Editing now makes a sound even when nothing is playing and Synth is
+  off.** Investigated "adding notes doesn't change the sound" by actually
+  reproducing it rather than guessing: the playback-synced synth was
+  already working correctly (confirmed by instrumenting it live), the
+  real problem was that edits were only ever audible if you happened to
+  have Synth on *and* be actively playing past that exact point — an easy
+  state to not be in. Fixed by giving every add/move/resize an instant
+  one-shot preview sound of its own, independent of the transport.
+- **Master seek bar now sits directly under Play/Pause/Stop, aligned
+  pixel-for-pixel with the waveforms beneath it.** First attempt used a
+  hardcoded CSS margin assuming the roll started right after the track's
+  own padding — broken the moment the Save/Revert/zoom button column was
+  added to the left of each track, since that column's width depends on
+  font/emoji rendering, not a fixed number. Fixed by measuring a real
+  waveform's actual rendered position in JS (`alignMasterBar()`) and
+  setting the bar's margins to match exactly, redone on window resize.
+  Verified with real `getBoundingClientRect()` comparisons, not by eye:
+  0px difference on both edges, and a click at a given fraction of the
+  bar lands within rounding of that same fraction of song duration.
+
+Not done: zoom doesn't affect the waveform above each roll (only
+WaveSurfer's own fixed-width overview), so at high zoom the roll and its
+waveform stop lining up with each other — the master bar's alignment
+promise above is about the *unzoomed* overview only. Synchronizing zoom
+across the waveform and every stem's roll together is a bigger change
+(WaveSurfer has its own zoom API that would need to be driven in lockstep
+with each roll's) and wasn't attempted.
