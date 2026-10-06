@@ -123,20 +123,22 @@ is — drums get real-sounding synthesized kick/snare/hi-hat hits, not
 pitched beeps), and a **MIDI ↓** download. Notes are in real time, not
 snapped to a beat grid — tempo detection comes with notation export later.
 
-**The piano roll is editable.** Click empty space to add a note, drag a
-note to move it (time and pitch together), drag its right edge to
-resize, select and press Delete/Backspace to remove it. Every edit saves
-to the server immediately — no separate save button, nothing to forget.
+**The piano roll is editable.** Click empty space to add a note (an
+instant preview sound plays so you can hear what you just did, even with
+nothing playing), drag to move or resize, Ctrl+drag to select several
+notes at once, Delete/Backspace to remove the selection, Ctrl+Z to undo.
+Each roll has its own zoom (🔍+/🔍−) for precise editing. Edits live in a
+local buffer — **Save** and **Revert** (to the left of each roll) commit
+them or throw them away; the caption always says which state you're in.
 
-**Master transport**: Play all / Pause all / Stop all, a combined
-timecode (`elapsed / total`), and a seek bar that moves every stem
-together. Each stem also shows its own live timecode. Why both: the
-stems are independent `<audio>` elements, each with its own playback
-clock — in testing, four stems that started in perfect sync had drifted
-about 1.4 milliseconds apart after 7.6 seconds of playback. Inaudible at
-that scale, but real, and the per-stem timecodes are there so it's
-visible rather than silently assumed away. See "Known weaknesses" in
-`HANDOFF.md` for what fixing this properly would take.
+**Playback is sample-accurate across stems**, driven by a single shared
+`AudioContext` clock (`app/static/audioengine.js`) rather than four
+independent `<audio>` elements, which is what four-stems-started-together
+used to drift apart from each other over time. Play all / Pause all /
+Stop all, a combined timecode, a seek bar aligned pixel-for-pixel with
+the waveforms beneath it, and a live timecode per stem — which now always
+agree, by construction, since every stem reads the same clock rather than
+reporting its own position.
 
 `tests/smoke_transcription.py` checks the transcription wiring on
 synthetic audio with known notes: `venv/bin/python -m

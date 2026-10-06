@@ -99,7 +99,8 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
 
   function xyToTimePitch(mx, my) {
     const { lo, hi, duration, w, rowH } = layout();
-    return { time: Math.max(0, (mx / w) * duration), pitch: Math.round(hi - my / rowH) };
+    const pitch = Math.round(hi - my / rowH);
+    return { time: Math.max(0, (mx / w) * duration), pitch: Math.max(0, Math.min(127, pitch)) };
   }
 
   function pushHistory() {
@@ -113,7 +114,16 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
     onChange(notes.map((n) => n.slice()));
   }
 
+  // e.offsetX/Y are computed by the browser at the moment the event fired,
+  // relative to the target element — unlike a getBoundingClientRect() call
+  // made later, they can't be thrown off by a layout shift that happens in
+  // between (concretely: canvas.focus() below can make the browser
+  // auto-scroll the page if the roll wasn't fully in view, which moves the
+  // canvas's rect between dispatch and handling — this corrupted note pitch
+  // by over a hundred semitones when reproduced, hence belt-and-suspenders
+  // with the clamp in xyToTimePitch() too).
   function mousePos(e) {
+    if (e.target === canvas && typeof e.offsetX === 'number') return { mx: e.offsetX, my: e.offsetY };
     const rect = canvas.getBoundingClientRect();
     return { mx: e.clientX - rect.left, my: e.clientY - rect.top };
   }
@@ -122,8 +132,8 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
   canvas.style.cursor = 'crosshair';
 
   canvas.addEventListener('mousedown', (e) => {
-    canvas.focus();
     const { mx, my } = mousePos(e);
+    canvas.focus();
 
     if (e.ctrlKey || e.metaKey) {
       const hit = hitTest(mx, my);
@@ -251,7 +261,9 @@ const synth = {
   voices: new Set(),
 
   ensureContext() {
-    this.ctx = this.ctx || new AudioContext();
+    // Shares the playback engine's AudioContext (one clock for everything
+    // that makes sound here) instead of creating a second, separate one.
+    this.ctx = engine.ensureContext();
     this.ctx.resume();
     return this.ctx;
   },

@@ -28,7 +28,9 @@ function formatTimecode(seconds) {
 
 function noteName(midiPitch) {
   const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
-  return names[midiPitch % 12] + (Math.floor(midiPitch / 12) - 1);
+  // JS's % keeps the dividend's sign, so a negative pitch would otherwise
+  // index the array with a negative number and silently return undefined.
+  return names[((midiPitch % 12) + 12) % 12] + (Math.floor(midiPitch / 12) - 1);
 }
 
 function escapeHtml(s) {
