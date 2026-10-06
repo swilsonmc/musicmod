@@ -3,11 +3,12 @@ const playerDiv = document.getElementById('player');
 const form = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
 
-let tracks = {}; // stem_name -> { wavesurfer, muted, soloed, volume, notes, synthOn, isDrum, roll, timeEl }
+let tracks = {}; // stem_name -> { wavesurfer, muted, soloed, volume, notes, lastSaved, dirty, synthOn, isDrum, roll, timeEl }
 let pollTimer = null;
 let tickTimer = null;
 let transcribeTimer = null;
 let masterTickTimer = null;
+let lastEditedRoll = null; // target of Ctrl+Z, whichever roll was most recently edited
 
 const METHOD_LABEL = {
   basic_pitch: 'Basic Pitch (polyphonic)',
@@ -51,6 +52,7 @@ function teardownPlayer() {
   synth.stop();
   for (const t of Object.values(tracks)) t.wavesurfer.destroy();
   tracks = {};
+  lastEditedRoll = null;
 }
 
 function metaRow(upload, extra = '') {
@@ -197,13 +199,22 @@ function updateTimecodes() {
   const fill = document.getElementById('master-bar-fill');
   if (fill) fill.style.width = duration ? `${(now / duration) * 100}%` : '0%';
   for (const t of Object.values(tracks)) {
+    const d = t.wavesurfer.getDuration();
     if (t.timeEl) t.timeEl.textContent = formatTimecode(t.wavesurfer.getCurrentTime());
-    if (t.playhead) {
-      const d = t.wavesurfer.getDuration();
-      t.playhead.style.left = d ? `${(t.wavesurfer.getCurrentTime() / d) * 100}%` : '0%';
-    }
+    if (t.roll) t.roll.setPlayheadFraction(d ? t.wavesurfer.getCurrentTime() / d : 0);
   }
 }
+
+// Undo targets whichever roll was edited most recently, regardless of which
+// stem's canvas has focus — simpler and more predictable than per-element undo.
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    if (lastEditedRoll && lastEditedRoll.hasUndo()) {
+      e.preventDefault();
+      lastEditedRoll.undo();
+    }
+  }
+});
 
 function renderDone(upload) {
   teardownPlayer();
@@ -228,15 +239,18 @@ function renderDone(upload) {
     watchTranscription(upload.id, transcribeBox);
   }
 
-  // --- Master transport: one set of controls and one timecode for every stem together ---
+  // --- Master transport: controls in one row, the seek bar in its own row
+  // directly below, inset to line up with every stem's waveform/roll. ---
   const transport = document.createElement('div');
   transport.className = 'master-transport';
   transport.innerHTML = `
-    <button id="play-all">Play all</button>
-    <button id="pause-all">Pause all</button>
-    <button id="stop-all">Stop all</button>
-    <span class="time-readout" id="master-time">0:00.00 / 0:00.00</span>
-    <div class="master-bar" id="master-bar"><div class="master-bar-fill" id="master-bar-fill"></div></div>
+    <div class="master-buttons">
+      <button id="play-all">Play all</button>
+      <button id="pause-all">Pause all</button>
+      <button id="stop-all">Stop all</button>
+      <span class="time-readout" id="master-time">0:00.00 / 0:00.00</span>
+    </div>
+    <div class="master-bar-row" id="master-bar"><div class="master-bar-fill" id="master-bar-fill"></div></div>
   `;
   playerDiv.appendChild(transport);
   transport.querySelector('#play-all').onclick = () => {
@@ -263,6 +277,15 @@ function renderDone(upload) {
     const isDrum = stemName === 'drums';
     const track = document.createElement('div');
     track.className = 'track';
+
+    // Appended before .track-main so it renders to the left of the roll, as requested.
+    const side = document.createElement('div');
+    side.className = 'track-side';
+    track.appendChild(side);
+
+    const main = document.createElement('div');
+    main.className = 'track-main';
+    track.appendChild(main);
 
     const controls = document.createElement('div');
     controls.className = 'track-controls';
@@ -293,12 +316,13 @@ function renderDone(upload) {
     }
 
     const waveformDiv = document.createElement('div');
-    track.append(controls, waveformDiv);
-    playerDiv.appendChild(track);
+    waveformDiv.className = 'track-waveform';
+    main.append(controls, waveformDiv);
 
     const wavesurfer = WaveSurfer.create({ container: waveformDiv, height: 60, url });
     const t = tracks[stemName] = {
-      wavesurfer, muted: false, soloed: false, volume: 1, notes: null, synthOn: false, isDrum, roll: null, timeEl, playhead: null,
+      wavesurfer, muted: false, soloed: false, volume: 1, notes: null, lastSaved: null, dirty: false,
+      synthOn: false, isDrum, roll: null, timeEl,
     };
 
     // Clicking one waveform used to move only that stem, putting the others out of sync.
@@ -306,35 +330,79 @@ function renderDone(upload) {
     wavesurfer.on('finish', () => { if (!anyPlaying()) synth.stop(); });
 
     if (midi) {
-      const rollWrap = document.createElement('div');
-      rollWrap.className = 'roll';
-      const canvas = document.createElement('canvas');
-      const playhead = document.createElement('div');
-      playhead.className = 'playhead';
-      rollWrap.append(canvas, playhead);
-      t.playhead = playhead;
+      const rollContainer = document.createElement('div');
       const caption = document.createElement('div');
       caption.className = 'caption';
       caption.textContent = 'loading…';
       const hint = document.createElement('div');
       hint.className = 'caption hint';
-      hint.textContent = 'Click empty space to add a note, drag to move or resize, Delete to remove.';
-      track.append(rollWrap, caption, hint);
+      hint.textContent = 'Click empty space to add a note, drag to move/resize, Ctrl+drag to select many, Delete to remove, Ctrl+Z to undo.';
+      main.append(rollContainer, caption, hint);
 
-      const roll = createPianoRoll(canvas, {
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save';
+      const revertBtn = document.createElement('button');
+      revertBtn.textContent = 'Revert';
+      const zoomInBtn = document.createElement('button');
+      zoomInBtn.textContent = '🔍+';
+      zoomInBtn.title = 'Zoom in on this piano roll';
+      const zoomOutBtn = document.createElement('button');
+      zoomOutBtn.textContent = '🔍−';
+      zoomOutBtn.title = 'Zoom out on this piano roll';
+      side.append(saveBtn, revertBtn, zoomInBtn, zoomOutBtn);
+
+      const roll = createPianoRoll(rollContainer, {
         getDuration: () => wavesurfer.getDuration(),
         isDrum,
-        onChange: (notes) => saveNotes(upload.id, stemName, notes, caption, midi.method),
+        onChange: (notes) => {
+          t.notes = notes;       // live, so Synth hears edits immediately — no server round trip needed
+          t.dirty = true;
+          lastEditedRoll = roll;
+          updateCaption();
+        },
       });
       t.roll = roll;
+
+      function updateCaption() {
+        const base = describeNotes(stemName, t.notes || [], midi.method);
+        caption.textContent = t.dirty ? `${base} · unsaved changes (Save to keep, Revert to discard)` : `${base} · saved`;
+        caption.classList.toggle('dirty', t.dirty);
+      }
+
+      saveBtn.onclick = async () => {
+        caption.textContent = 'Saving…';
+        try {
+          const res = await fetch(`/api/uploads/${upload.id}/midi/${stemName}/notes`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ notes: t.notes }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          t.lastSaved = t.notes.map((n) => n.slice());
+          t.dirty = false;
+          updateCaption();
+        } catch (err) {
+          caption.textContent = 'Save failed — try again.';
+        }
+      };
+      revertBtn.onclick = () => {
+        if (!t.lastSaved) return;
+        roll.setNotes(t.lastSaved);
+        t.notes = t.lastSaved.map((n) => n.slice());
+        t.dirty = false;
+        updateCaption();
+      };
+      zoomInBtn.onclick = () => roll.zoomIn();
+      zoomOutBtn.onclick = () => roll.zoomOut();
 
       Promise.all([
         fetch(midi.notes_url).then((r) => r.json()),
         new Promise((resolve) => wavesurfer.once('ready', resolve)),
       ]).then(([{ notes }]) => {
         t.notes = notes;
+        t.lastSaved = notes.map((n) => n.slice());
         roll.setNotes(notes);
-        setCaption(caption, stemName, notes, midi.method);
+        updateCaption();
       });
 
       synthBtn.onclick = () => {
@@ -346,8 +414,10 @@ function renderDone(upload) {
       const caption = document.createElement('div');
       caption.className = 'caption';
       caption.textContent = 'No MIDI for this stem.';
-      track.appendChild(caption);
+      main.appendChild(caption);
     }
+
+    playerDiv.appendChild(track);
 
     muteBtn.onclick = () => {
       t.muted = !t.muted;
@@ -364,35 +434,30 @@ function renderDone(upload) {
       applyMix();
     };
   }
+
+  alignMasterBar();
 }
 
-function setCaption(el, stemName, notes, method) {
+// The .track-side button column's width depends on its content (font,
+// emoji rendering), not a fixed number — so instead of a hardcoded CSS
+// margin, measure where a real waveform actually starts/ends and match
+// the master seek bar to it exactly.
+function alignMasterBar() {
+  const bar = document.getElementById('master-bar');
+  const waveform = document.querySelector('.track-waveform');
+  if (!bar || !waveform) return;
+  const barParentLeft = bar.parentElement.getBoundingClientRect().left;
+  const wfRect = waveform.getBoundingClientRect();
+  bar.style.marginLeft = `${wfRect.left - barParentLeft}px`;
+  bar.style.marginRight = `${bar.parentElement.getBoundingClientRect().right - wfRect.right}px`;
+}
+
+function describeNotes(stemName, notes, method) {
   const label = METHOD_LABEL[method] || method;
-  if (stemName === 'drums') {
-    el.textContent = `${notes.length} hits · ${label}`;
-    return;
-  }
+  if (stemName === 'drums') return `${notes.length} hits · ${label}`;
   const pitches = notes.map((n) => n[0]);
-  el.textContent = `${notes.length} notes · ${label}` +
+  return `${notes.length} notes · ${label}` +
     (notes.length ? ` · range ${noteName(Math.min(...pitches))}–${noteName(Math.max(...pitches))}` : '');
-}
-
-async function saveNotes(uploadId, stemName, notes, caption, method) {
-  const prev = caption.textContent;
-  caption.textContent = 'Saving…';
-  try {
-    const res = await fetch(`/api/uploads/${uploadId}/midi/${stemName}/notes`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    tracks[stemName].notes = notes;
-    setCaption(caption, stemName, notes, method);
-    caption.textContent += ' · saved';
-  } catch (err) {
-    caption.textContent = prev + ' · save failed, will retry on next edit';
-  }
 }
 
 function applyMix() {
@@ -406,7 +471,10 @@ function applyMix() {
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => Object.values(tracks).forEach((t) => t.roll && t.roll.redraw()), 150);
+  resizeTimer = setTimeout(() => {
+    Object.values(tracks).forEach((t) => t.roll && t.roll.redraw());
+    alignMasterBar();
+  }, 150);
 });
 
 form.onsubmit = async (e) => {
