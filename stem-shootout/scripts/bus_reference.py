@@ -1,13 +1,13 @@
-"""Sum NIN's raw official multitrack files into the 4 canonical stem buckets.
+"""Sum raw official multitrack files into whatever stem buckets the mapping defines.
 
 The official multitracks are per-instrument (Kick, Snare, Bass DI, Lead Vox,
-Gtr 1, ...), not already split into vocals/drums/bass/other. To get a fair
-ground truth for comparing against a 4-stem AI separation, we need to bus
-them down ourselves: sum every track assigned to "drums" into one drums.wav,
+Gtr 1, ...), not already split the way an AI model splits them. To get a fair
+ground truth for comparing against a model's output, we need to bus them
+down ourselves: sum every track assigned to "drums" into one drums.wav,
 every track assigned to "vocals" into one vocals.wav, and so on.
 
 The bucket mapping is a plain JSON file you fill in once you can see the
-actual track list for the chosen song, e.g.:
+actual track list for the chosen song. The usual 4-bucket case:
 
     {
       "vocals": ["Lead Vox.wav", "Harmony Vox.wav"],
@@ -16,7 +16,14 @@ actual track list for the chosen song, e.g.:
       "other":  ["Gtr 1.wav", "Gtr 2.wav", "Synth.wav", "Keys.wav"]
     }
 
-Also writes full_mix.wav (the sum of all four buckets), which align.py uses
+But any bucket names work — e.g. a song with separate guitar and piano
+tracks can use a 6-bucket mapping (vocals/drums/bass/guitar/piano/other)
+to test a 6-stem model like htdemucs_6s, as long as score.py and the
+model being tested agree on the names. Keys starting with "_" (like
+"_method", documenting how the mapping was built) are metadata, not
+buckets, and are skipped.
+
+Also writes full_mix.wav (the sum of every bucket), which align.py uses
 to find the sample offset against the official mixdown.
 """
 from __future__ import annotations
@@ -48,15 +55,13 @@ def main() -> None:
     args = ap.parse_args()
 
     mapping = json.loads(args.mapping.read_text())
-    expected = {"vocals", "drums", "bass", "other"}
-    missing = expected - mapping.keys()
-    if missing:
-        sys.exit(f"Mapping is missing buckets: {missing}")
+    bucket_names = [k for k in mapping if not k.startswith("_")]
+    if not bucket_names:
+        sys.exit("Mapping has no buckets (every key starts with '_', i.e. is metadata)")
 
     buckets = {}
-    for bucket, filenames in mapping.items():
-        if bucket not in expected:
-            continue
+    for bucket in bucket_names:
+        filenames = mapping[bucket]
         print(f"[bus] {bucket}: summing {len(filenames)} track(s)", file=sys.stderr)
         buckets[bucket] = sum_bucket(args.raw_dir, filenames)
         save_audio(args.output_dir / f"{bucket}.wav", buckets[bucket])

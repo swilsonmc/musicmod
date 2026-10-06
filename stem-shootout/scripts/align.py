@@ -16,8 +16,6 @@ from pathlib import Path
 
 from common import apply_offset, best_offset, gain_staging_ratio, load_audio, save_audio
 
-BUCKETS = ["vocals", "drums", "bass", "other"]
-
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -53,12 +51,11 @@ def main() -> None:
               "be meaningful even if alignment and scoring run without error — see "
               "common.py's gain_staging_ratio docstring.", file=sys.stderr)
 
-    for bucket in BUCKETS:
-        path = args.reference_dir / f"{bucket}.wav"
-        if not path.exists():
+    for path in args.reference_dir.glob("*.wav"):
+        if path.stem == "full_mix":
             continue
         aligned = apply_offset(load_audio(path), offset)
-        save_audio(args.output_dir / f"{bucket}.wav", aligned)
+        save_audio(args.output_dir / path.name, aligned)
 
     print(f"[align] wrote aligned reference stems to {args.output_dir}", file=sys.stderr)
 

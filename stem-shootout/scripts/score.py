@@ -7,11 +7,18 @@ museval sees *all* the true sources together in one call — scoring stems
 one at a time throws that signal away. So this script evaluates a model's
 full available stem set in a single museval.evaluate() call:
 
-  - a model with all 4 of vocals/drums/bass/other -> one 4-source evaluation
+  - a model matching every real bucket the reference has (4 for
+    vocals/drums/bass/other, 6 for a guitar/piano split, etc.) -> one
+    evaluation covering all of them
   - a model with only vocals + instrumental -> one 2-source evaluation,
-    where "instrumental" reference = drums + bass + other summed
+    where "instrumental" reference = every non-vocals bucket summed
   - anything else -> scored with whatever it has (SIR won't be meaningful
     with a single source, but SDR/SAR still are) and flagged as such
+
+The reference's real buckets are discovered from whatever WAV files
+reference_dir actually contains — not a hardcoded 4-stem list — so a
+song with a 6-bucket mapping (see bus_reference.py) scores correctly
+with no changes needed here.
 """
 from __future__ import annotations
 
@@ -25,23 +32,28 @@ import numpy as np
 
 from common import load_audio, match_length
 
-FULL_4STEM = ["vocals", "drums", "bass", "other"]
-
 
 def build_reference_set(reference_dir: Path) -> dict[str, np.ndarray]:
-    refs = {b: load_audio(reference_dir / f"{b}.wav") for b in FULL_4STEM}
-    max_len = max(r.shape[0] for r in refs.values())
-    instrumental = np.zeros((max_len, 2), dtype="float32")
-    for b in ("drums", "bass", "other"):
-        instrumental[: refs[b].shape[0]] += refs[b]
-    refs["instrumental"] = instrumental
+    real_buckets = sorted(p.stem for p in reference_dir.glob("*.wav") if p.stem != "full_mix")
+    if not real_buckets:
+        sys.exit(f"No bucket WAVs found in {reference_dir}")
+    refs = {b: load_audio(reference_dir / f"{b}.wav") for b in real_buckets}
+
+    if "vocals" in refs:
+        non_vocal = [b for b in real_buckets if b != "vocals"]
+        max_len = max(refs[b].shape[0] for b in non_vocal)
+        instrumental = np.zeros((max_len, 2), dtype="float32")
+        for b in non_vocal:
+            instrumental[: refs[b].shape[0]] += refs[b]
+        refs["instrumental"] = instrumental
     return refs
 
 
 def score_model(manifest: dict[str, str], refs: dict[str, np.ndarray]) -> dict:
+    real_buckets = set(refs) - {"instrumental"}
     available = [b for b in manifest if b in refs]
-    if set(FULL_4STEM).issubset(available):
-        stems = FULL_4STEM
+    if real_buckets.issubset(available):
+        stems = sorted(real_buckets)
     elif {"vocals", "instrumental"}.issubset(available):
         stems = ["vocals", "instrumental"]
     else:
