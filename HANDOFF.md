@@ -1343,3 +1343,97 @@ real limitation of the approach — still not run.
 Test artifacts kept at `/tmp/claude-*/scratchpad/`: `orchestral_gt.json`
 (ground truth), `orchestral_pred_notes.json` (predictions),
 `score_orchestral_test.py` (scorer) — session-scoped, not in this repo.
+
+## Field survey: who else is splitting "other", and how (2026-10-08)
+
+Prompted by the MuScriptor failure above — the owner asked not to give up,
+and to find out what everyone else is doing. Researched the same day;
+nothing below has been *run* here yet. Sources are linked so the next
+session can verify rather than trust.
+
+### The headline: our 6-stem baseline is five years behind the leaderboard
+
+The project's only guitar/piano separation test so far was `htdemucs_6s`
+(Demucs, 2022): **-6.13 dB** guitar, **0.01 dB** piano. The public
+[MVSEP guitar leaderboard](https://mvsep.com/quality_checker/leaderboard/guitar/?sort=guitar)
+and [piano leaderboard](https://mvsep.com/quality_checker/leaderboard/piano)
+— the community benchmark the whole open-source separation scene scores
+against — have **BS-RoFormer-SW** at **+9.01 dB guitar / +7.80 dB piano**,
+ahead of Apple's Logic Pro 11.2 Stem Splitter (9.00 / 7.79). Same six
+stems as `htdemucs_6s` (vocals, drums, bass, guitar, piano, other), open
+weights (~700 MB, `jarredou/BS-ROFO-SW-Fixed` on Hugging Face; community-
+trained, weight license not formally stated), and a pip package that runs
+it on CPU: [`bs-roformer-infer`](https://github.com/openmirlab/bs-roformer-infer)
+(MIT, `device="cpu"` supported, SHA-verified auto-download). Not in
+`audio-separator`'s model list, which is why the earlier survey missed it.
+Caveat from the lead/backing test above: Roformer checkpoints ran 15-20x
+slower than MDX-Net on this CPU — budget an hour or two per song.
+
+### The rest of the landscape
+
+- **MVSep Mega 53-stem** ([release](https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/tag/v1.0.21),
+  [HF mirror](https://huggingface.co/noblebarkrr/BS-Roformer-MVSep-Mega-53-stems),
+  [MVSEP page](https://mvsep.com/algorithms/135)) — BS-RoFormer, 53 output
+  classes including trumpet, trombone, french-horn, flute, oboe, clarinet,
+  bassoon, violin, viola, cello, strings, timpani, harp, organ… Detects
+  which instruments are present and only emits those. Upstream: "at least
+  16 GB VRAM", stems don't sum to the mix, and per-instrument quality is
+  below dedicated single-instrument models — MVSEP itself recommends it as
+  a *discovery* pass, then specialist models per detected instrument.
+  This laptop has 11 GB RAM total; likely infeasible here without a
+  rented GPU. Weight license/training-data provenance is an open question
+  ([issue #255](https://github.com/ZFTurbo/Music-Source-Separation-Training/issues/255),
+  unanswered as of 2026-10-02).
+- **Cascades on top of SW**: the SJTU X-LANCE system that won the
+  [MSR Challenge 2025](https://arxiv.org/html/2602.09042v1) runs frozen
+  BS-Rofo-SW, then fine-tuned models that split "other" into synthesizer /
+  percussion / orchestral elements. Code + checkpoints:
+  [ModistAndrew/xlance-msr](https://github.com/ModistAndrew/xlance-msr) (MIT).
+- **Query-based separation** (describe or demonstrate the target instead
+  of a fixed stem list): Banquet (above, still untried; a text-query
+  variant exists, [Language-Audio-Banquet](https://huggingface.co/spaces/chenxie95/Language-Audio-Banquet),
+  GPU-oriented); [AudioSep](https://arxiv.org/html/2308.05037); Meta's
+  [SAM Audio](https://ai.meta.com/research/samaudio/) (Dec 2025, text /
+  visual / time-span prompts, 500M–3B params, open weights under a custom
+  "SAM License", GPU-focused, own paper admits text-queried instrument
+  separation "significantly lags" Demucs-class specialists).
+- **Transcription side**: the [2025 AMT Challenge](https://arxiv.org/html/2603.27528)
+  (8 teams, 8 orchestral instruments) — best multi-instrument F1 **0.60**
+  vs MT3's 0.39, and *every* system lost ~0.3 F1 going from 1 to 3
+  simultaneous instruments; "instrument leakage" (hallucinating absent
+  instruments — exactly our drums result) named as a core failure mode.
+  Winner built on [YourMT3+](https://github.com/mimbres/YourMT3).
+  [Harmonica](https://arxiv.org/html/2609.04640) (Sept 2026): a 26K-param
+  instrument-agnostic note detector beating Basic Pitch by +0.21 frame F1
+  on Slakh stems at 1,600x real-time — code not yet found.
+  **MuScriptor has an `--instruments` flag** that forbids decoding any
+  class not listed — never used in our tests; cheap to retry with it.
+- **Orchestral ground truth now exists**: [Spheres](https://zenodo.org/records/17347681)
+  — real orchestra, every instrument recorded in isolation, CC BY-SA 4.0,
+  no registration; the **2.8 GB stereo subset** has per-instrument stems
+  plus mixes. Its baseline (X-UMX) got strings from 4.5 → 9.4 dB SDR.
+  Fixes the "no orchestral ground truth in the catalog" gap cheaply.
+- **A near-twin project**: [SteMidi-Studio](https://github.com/DigitLib/SteMidi-Studio)
+  — Mega-53 separation → MuScriptor (medium/large) → web piano roll.
+  Alpha, 0 stars, 3 commits, GPU-first (6 GB VRAM minimum). Same idea as
+  this app, different bets: they assume a GPU and the biggest models; we
+  assume a CPU and measure everything. Its README notes instrument
+  conditioning "reduces hallucinated notes" — consistent with the
+  `--instruments` idea above.
+- **Commercial proof it's doable**: LALAL.AI (10 source types incl.
+  strings/wind/synth), Moises, AudioShake, Logic Pro — all closed, all
+  shipping guitar/piano stems today.
+
+### Ideas nobody in that list is doing, that this project is positioned for
+
+- **Score-informed separation using our own edited piano roll as the
+  score.** Published as a research direction
+  ([arXiv 2503.07352](https://arxiv.org/html/2503.07352v1), classical
+  music) but no shipping tool lets a user *correct* the score and re-run.
+  We already have the editor.
+- **Stereo-position extraction** for the Bohemian-Rhapsody-style cases
+  (flagged earlier, still untried) — not a neural model at all.
+- **Publishing measured negatives.** Our MuScriptor-small and
+  `htdemucs_6s`-on-orchestra results don't exist anywhere else in
+  measured form; the MVSEP quality checker accepts submissions, and the
+  MuScriptor repo would benefit from an issue with the numbers.
