@@ -1232,3 +1232,55 @@ waveform rendering — each stem's audio is now fetched and decoded twice
 (once by WaveSurfer for display, once by the engine for playback). Fine
 on localhost with files this size; would be worth revisiting if stems
 get much larger or this ever serves more than one user at a time.
+
+## MuScriptor (multi-instrument transcription) — measured, mixed result (2026-10-08)
+
+Investigated whether transcribing "other" with per-instrument labels
+(rather than trying to separate it as audio) could sidestep the poor
+guitar/piano audio-separation numbers above. Found
+[MuScriptor](https://ai.miraheze.org/wiki/MuScriptor) (Kyutai/Mirelo/IRCAM,
+July 2026) — transcribes mixed audio directly into instrument-labeled
+MIDI events in one pass. Real, pip-installable (`pip install muscriptor`),
+weights gated on Hugging Face (free account + accept the model's license
+page + a token — none of that is pip's problem, it's a one-time manual
+step per machine).
+
+**Speed, small/CPU model**: ~1.6x real-time (273.6s audio in ~445-450s)
+on the target laptop — far better than the karaoke Roformer model's
+~15-20x. One warning in 55 chunks ("didn't emit EOS within budget"),
+handled gracefully, didn't crash.
+
+**Measured classification accuracy, isolated ground truth** (the real
+`Ac__Guitar`/`El__Guitar`/`Piano` tracks from `a_light_that_never_comes`'s
+archive.org source, transcribed alone — a direct test of instrument
+labeling, not full-mix separation):
+
+| Track | Ground truth | Result |
+|---|---|---|
+| Ac__Guitar.flac | acoustic guitar | **100%** labeled `acoustic_guitar` |
+| El__Guitar.flac | electric guitar | **100%** labeled an electric-guitar subtype (60% clean, 40% distorted) |
+| Piano.flac | piano | **0%** correct — 99.4% labeled `clean_electric_guitar`, rest `electric_bass` |
+
+Guitar acoustic-vs-electric: essentially perfect. **Piano vs. guitar: a
+real, complete failure on this test**, not noise — not "mostly right with
+some confusion," confidently wrong almost every time. This directly
+undercuts an earlier, less rigorous read from running it on Noah's
+Dove's "other" stem (which reported a plausible-looking ~2,251
+piano-labeled / ~110 guitar-labeled split) — that result can no longer be
+trusted without re-checking, since the same model aced guitar and failed
+piano on known-clean input.
+
+**Likely explanation, not confirmed**: only the "small" (103M param)
+model is documented to run on CPU; the published Multi F1 48.2 benchmark
+was measured on "large" (1.4B params), which needs a GPU. Plausible the
+small model simply lacks the capacity for this specific distinction —
+untested here. If this gets picked up again, the medium or large variant
+on a GPU (the cloud session may have one, worth checking) is the next
+real test, not writing this method off entirely from one small-model
+result.
+
+**Not done / open**: re-running MuScriptor directly on Noah's Dove's
+"other" stem now that piano-labeling specifically is suspect; testing
+whether running on isolated tracks (clean signal) vs. a blended "other"
+stem (post-separation, already-degraded signal) changes accuracy at all;
+medium/large model variants.
