@@ -1284,3 +1284,62 @@ result.
 whether running on isolated tracks (clean signal) vs. a blended "other"
 stem (post-separation, already-degraded signal) changes accuracy at all;
 medium/large model variants.
+
+## MuScriptor on real orchestral multi-instrument audio — small model fails outright (2026-10-08)
+
+Follow-up to the piano result above, using a proper multi-instrument test
+instead of single isolated stems. Source:
+[BabySlakh](https://zenodo.org/records/4603870) (Zenodo, CC-BY 4.0) — a
+research dataset (20 tracks, professional sample-library synthesis, exact
+aligned MIDI per instrument) built for exactly this kind of source-
+separation/transcription evaluation. Used `Track00006`, the track with the
+richest acoustic-orchestral instrumentation in the set: 2× trumpet, French
+horn, trombone, alto sax, flute, and 2× string ensemble — 729 ground-truth
+notes over 4m6s. Summed those 8 stems (excluding drums/bass/guitar/piano,
+mirroring what a real "other" stem would contain) into one mixed WAV and
+ran MuScriptor small/CPU on it.
+
+**Scoring**: matched predicted notes to ground truth by pitch (±1
+semitone) and onset time (±150ms) — the same note-matching tolerance
+`mir_eval` uses, chosen so "close but not exact" still counts as a
+detection, separate from whether the *instrument label* was also right.
+
+| | Count |
+|---|---|
+| Ground-truth notes | 729 |
+| Predicted notes | 2,600 |
+| Matched to a real note | 46 |
+| **Note recall** | **6.3%** |
+| **Note precision** | **1.8%** |
+| Instrument accuracy on the 46 matched notes | **0%** — all 46 labeled `acoustic_piano` |
+| Predicted notes with no matching ground truth at all | 2,554 (1,863 labeled `drums`, 691 `acoustic_piano`) |
+
+Two separate failures, not one: it barely detects *that* a note happened
+(6.3% recall — worse than `basic-pitch`, the simple method already used
+for "other" elsewhere in this app), and on the rare note it does detect,
+it never once gets the instrument right. 72% of its total output was
+`drums` — a full fake percussion part hallucinated on top of audio that
+has zero drums in it.
+
+**Ruled out as a test-setup bug before trusting this**: re-ran the exact
+same small model on the solo flute stem alone, no mixing — recall 9.5%,
+100% of matched notes labeled `acoustic_piano`, same failure shape.
+Confirmed the cached model weights are intact (393MB, correct HF cache
+layout once symlinks are followed — the 36KB a careless `du` first showed
+was just the top-level folder, not the real blob). So this isn't "the
+model didn't download" or "mixing broke it" — the small model
+demonstrably cannot transcribe flute, trumpet, french horn, trombone, or
+alto sax, whether alone or mixed, on top of already not handling piano
+(prior result above). The one family it's shown working on so far is
+guitar (acoustic/electric, prior result above).
+
+**Updated read**: this is no longer "piano specifically is the gap" —
+it's now measured failing on 6 of the ~8 orchestral/acoustic instrument
+classes tested across both sessions, succeeding only on guitar. The
+medium/large model on a GPU remains the untested next step that would
+tell us whether this is a capacity ceiling of the small checkpoint or a
+real limitation of the approach — still not run.
+
+Test artifacts kept at `/tmp/claude-*/scratchpad/`: `orchestral_gt.json`
+(ground truth), `orchestral_pred_notes.json` (predictions),
+`score_orchestral_test.py` (scorer) — session-scoped, not in this repo.
