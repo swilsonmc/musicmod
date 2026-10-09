@@ -1285,64 +1285,64 @@ whether running on isolated tracks (clean signal) vs. a blended "other"
 stem (post-separation, already-degraded signal) changes accuracy at all;
 medium/large model variants.
 
-## MuScriptor on real orchestral multi-instrument audio — small model fails outright (2026-10-08)
+## MuScriptor on real orchestral multi-instrument audio (2026-10-08, corrected same day)
 
-Follow-up to the piano result above, using a proper multi-instrument test
-instead of single isolated stems. Source:
-[BabySlakh](https://zenodo.org/records/4603870) (Zenodo, CC-BY 4.0) — a
-research dataset (20 tracks, professional sample-library synthesis, exact
-aligned MIDI per instrument) built for exactly this kind of source-
-separation/transcription evaluation. Used `Track00006`, the track with the
-richest acoustic-orchestral instrumentation in the set: 2× trumpet, French
-horn, trombone, alto sax, flute, and 2× string ensemble — 729 ground-truth
-notes over 4m6s. Summed those 8 stems (excluding drums/bass/guitar/piano,
-mirroring what a real "other" stem would contain) into one mixed WAV and
-ran MuScriptor small/CPU on it.
+> **Correction.** The first version of this section (commit `abe84af`)
+> reported 6.3% note recall. That number was wrong — a bug in *our*
+> ground-truth parser, not the model: Slakh's MIDI files keep the tempo
+> map in track 0 and the notes in track 1, and the parser iterated each
+> track separately, so it assumed the default 120 BPM and misplaced every
+> ground-truth note (the flute's first note is at 94.9s; we had it at
+> 49.5s). Fixed by iterating the merged file (`for msg in MidiFile(...)`),
+> which is tempo-aware. Everything below is re-scored. **Lesson for any
+> future MIDI ground truth here: never walk per-track with a default
+> tempo.**
 
-**Scoring**: matched predicted notes to ground truth by pitch (±1
-semitone) and onset time (±150ms) — the same note-matching tolerance
-`mir_eval` uses, chosen so "close but not exact" still counts as a
-detection, separate from whether the *instrument label* was also right.
+Source: [BabySlakh](https://zenodo.org/records/4603870) (Zenodo, CC-BY
+4.0) — 20 research tracks rendered from MIDI with professional sample
+libraries, exact aligned MIDI per instrument. `Track00006` has the most
+acoustic-orchestral instrumentation in the set: 2× trumpet, French horn,
+trombone, alto sax, flute, 2× string ensemble — 729 notes over 4m6s.
+Summed those 8 stems (no drums/bass/guitar/piano, mirroring an "other"
+stem) and transcribed the mix. Scoring matches notes by pitch (±1
+semitone) and onset (±150ms), like `mir_eval`, then separately checks the
+instrument label of each matched note.
 
-| | Count |
-|---|---|
-| Ground-truth notes | 729 |
-| Predicted notes | 2,600 |
-| Matched to a real note | 46 |
-| **Note recall** | **6.3%** |
-| **Note precision** | **1.8%** |
-| Instrument accuracy on the 46 matched notes | **0%** — all 46 labeled `acoustic_piano` |
-| Predicted notes with no matching ground truth at all | 2,554 (1,863 labeled `drums`, 691 `acoustic_piano`) |
+| Method | Note recall | Note precision | Instrument label correct (matched notes) |
+|---|---|---|---|
+| Basic Pitch (what the app uses for "other" today) | 45.1% | 21.6% | n/a — no labels |
+| MuScriptor small, unconstrained | 50.1% | 14.0% | **0%** — every note → `acoustic_piano`; plus 1,857 phantom `drums` notes |
+| **MuScriptor small, `--instruments` = the 6 true classes** | **58.8%** | **34.1%** | **51%** overall |
+| MuScriptor small, solo flute stem alone, unconstrained | 41.9% | 30.7% | 0% (→ `acoustic_piano`) |
 
-Two separate failures, not one: it barely detects *that* a note happened
-(6.3% recall — worse than `basic-pitch`, the simple method already used
-for "other" elsewhere in this app), and on the rare note it does detect,
-it never once gets the instrument right. 72% of its total output was
-`drums` — a full fake percussion part hallucinated on top of audio that
-has zero drums in it.
+Per-instrument accuracy in the constrained run: trumpet 82% (182/223),
+French horn 60%, alto sax 27%, trombone 21%, strings 15%, flute 0% (mostly
+called sax or trumpet).
 
-**Ruled out as a test-setup bug before trusting this**: re-ran the exact
-same small model on the solo flute stem alone, no mixing — recall 9.5%,
-100% of matched notes labeled `acoustic_piano`, same failure shape.
-Confirmed the cached model weights are intact (393MB, correct HF cache
-layout once symlinks are followed — the 36KB a careless `du` first showed
-was just the top-level folder, not the real blob). So this isn't "the
-model didn't download" or "mixing broke it" — the small model
-demonstrably cannot transcribe flute, trumpet, french horn, trombone, or
-alto sax, whether alone or mixed, on top of already not handling piano
-(prior result above). The one family it's shown working on so far is
-guitar (acoustic/electric, prior result above).
+What this means:
+- **Note detection is fine; naming is the problem.** Unconstrained, the
+  small model hears the notes (better than Basic Pitch) but collapses
+  every orchestral timbre to piano and hallucinates a drum part —
+  the "instrument leakage" failure the 2025 AMT Challenge names.
+- **`--instruments` is a big lever.** Forbidding classes that aren't
+  there removed the phantom drums, more than doubled precision, and took
+  label accuracy from 0% to 51%. Caveat: this run was given the exact
+  true list (a best case). In the app that list would come from the user
+  ("this song has horns and strings") or from an instrument-detection
+  pass — still to be measured.
+- Constrained MuScriptor-small **beats the app's current Basic Pitch path
+  on note recall and precision while also labeling instruments** —
+  a genuine positive, not just a less-bad negative.
+- Still not established: the medium model (`MuScriptor/muscriptor-medium`
+  has its *own* Hugging Face license gate, separate from small's; the
+  owner needs to accept it once before it can download), and whether the
+  piano→guitar confusion in the Linkin Park test above also clears up
+  with `--instruments`.
 
-**Updated read**: this is no longer "piano specifically is the gap" —
-it's now measured failing on 6 of the ~8 orchestral/acoustic instrument
-classes tested across both sessions, succeeding only on guitar. The
-medium/large model on a GPU remains the untested next step that would
-tell us whether this is a capacity ceiling of the small checkpoint or a
-real limitation of the approach — still not run.
-
-Test artifacts kept at `/tmp/claude-*/scratchpad/`: `orchestral_gt.json`
-(ground truth), `orchestral_pred_notes.json` (predictions),
-`score_orchestral_test.py` (scorer) — session-scoped, not in this repo.
+Model weights verified intact (393MB once HF cache symlinks are
+followed). Speed: ~1.05× real time (small), Basic Pitch ~0.13× real time.
+Artifacts (session scratch, not in repo): `orchestral_gt.json`,
+`build_orchestral_test.py` (fixed parser), `score_orchestral_test.py`.
 
 ## Field survey: who else is splitting "other", and how (2026-10-08)
 
@@ -1433,7 +1433,7 @@ slower than MDX-Net on this CPU — budget an hour or two per song.
   We already have the editor.
 - **Stereo-position extraction** for the Bohemian-Rhapsody-style cases
   (flagged earlier, still untried) — not a neural model at all.
-- **Publishing measured negatives.** Our MuScriptor-small and
+- **Publishing measured results, including negatives.** Our MuScriptor-small and
   `htdemucs_6s`-on-orchestra results don't exist anywhere else in
   measured form; the MVSEP quality checker accepts submissions, and the
   MuScriptor repo would benefit from an issue with the numbers.
