@@ -1437,3 +1437,52 @@ slower than MDX-Net on this CPU — budget an hour or two per song.
   `htdemucs_6s`-on-orchestra results don't exist anywhere else in
   measured form; the MVSEP quality checker accepts submissions, and the
   MuScriptor repo would benefit from an issue with the numbers.
+
+## BS-RoFormer-SW tested on our own guitar/piano ground truth — real improvement on piano, guitar still broken (2026-10-31)
+
+Step 1 of the "keep exploring" follow-up: integrated
+[bs-roformer-infer](https://github.com/openmirlab/bs-roformer-infer) (MIT,
+CPU-capable) into the shootout harness (`scripts/separate.py` gained
+`EXTERNAL_MODELS`/`run_external_model()` for tools outside
+`audio-separator`'s CLI) and ran its default checkpoint,
+**BS-RoFormer-SW** (jarredou's community-trained 6-stem model — same
+vocals/drums/bass/guitar/piano/other split as `htdemucs_6s`, ~700MB,
+auto-downloaded + SHA-256 verified), through the exact same scoring
+pipeline as the `htdemucs_6s` result above, on the same song
+(`a_light_that_never_comes`, real official stems vs. a peak-normalized
+sum used as the synthetic mixdown).
+
+| stem | htdemucs_6s SDR | BS-RoFormer-SW SDR | htdemucs_6s SIR | BS-RoFormer-SW SIR |
+|---|---|---|---|---|
+| vocals | 5.85 | **9.23** | 14.11 | 21.18 |
+| drums | 12.08 | **14.41** | 22.75 | 26.18 |
+| bass | -0.01 | **3.32** | 7.45 | 12.16 |
+| **piano** | 0.01 (silent) | **4.18** | 9.58 | **15.74** |
+| **guitar** | -7.42 | **0.00** | -32.96 | -23.56 |
+
+Every stem improved, confirming the public MVSEP leaderboard numbers
+translate to a real gain on our own test case, not just their benchmark.
+**Piano crossed from "doesn't work" to "actually works"**: SDR 0.01→4.18,
+and SIR (how much real piano vs. leaked other content) went from +9.58 to
++15.74 — the piano stem is now genuinely piano-dominated, not noise that
+happens to average out near zero. **Guitar is still broken on this song
+with both models** — SIR -23.56 means the "guitar" output is still mostly
+leaked content, just less overwhelmingly so than htdemucs_6s's -32.96.
+Whatever makes this song's guitar hard (likely: two guitar parts,
+Ac__Guitar + El__Guitar, summed into one ground-truth bucket because the
+model only outputs one combined guitar stem — a real mismatch between
+what's being asked for and what either model was trained to produce)
+isn't fixed by a better architecture alone.
+
+Took ~76 minutes wall-clock on this CPU (vs. htdemucs_6s's ~8 minutes) —
+consistent with the earlier Roformer-architecture speed finding. Weight
+license is community-trained and not formally stated by the uploader;
+fine for this project's private/personal use, worth a real license check
+before any redistribution.
+
+**Where this leaves the "split other further" thread**: piano is no
+longer a model-architecture dead end — swap `htdemucs_6s` for
+`bs_roformer_sw` in `app/separation.py`'s model list and piano separation
+becomes usable. Guitar needs a different fix (see Banquet/query-based
+approaches above, or accept it as a known limitation). Full numbers in
+`stem-shootout/data/songs/a_light_that_never_comes_6stem/results.json`.

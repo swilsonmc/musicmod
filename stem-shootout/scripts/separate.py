@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 CANONICAL_PATTERNS = {
@@ -104,9 +105,43 @@ def canonicalize_outputs(model_dir: Path) -> dict[str, str]:
     return manifest
 
 
+# Models audio-separator doesn't ship, run through their own CLI instead.
+# bs-roformer-infer (github.com/openmirlab/bs-roformer-infer) must be on PATH;
+# install it in its own venv, CPU torch first, as with everything here.
+EXTERNAL_MODELS = {
+    "bs_roformer_sw": "roformer-model-bs-roformer-sw-by-jarredou",
+}
+
+
+def label_bs_roformer_outputs(model_dir: Path, model: str) -> None:
+    """bs-roformer-infer writes `<input>_<stem>.wav`; rename to audio-separator's
+    `<input>_(<Stem>)_<model>.wav` so canonicalize() reads the parenthesized
+    label rather than guessing from the whole filename."""
+    for produced in model_dir.glob("*.wav"):
+        if "(" in produced.name:
+            continue
+        base, _, stem = produced.stem.rpartition("_")
+        produced.rename(model_dir / f"{base}_({stem.capitalize()})_{model}.wav")
+
+
+def run_external_model(mixdown: Path, model: str, model_dir: Path) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / mixdown.name).symlink_to(mixdown.resolve())
+        cmd = ["bs-roformer-infer", "--model", EXTERNAL_MODELS[model],
+               "--input_folder", tmp, "--store_dir", str(model_dir),
+               "--device", "cpu", "--output_format", "wav_float32"]
+        print(f"[separate] running: {' '.join(cmd)}", file=sys.stderr)
+        subprocess.run(cmd, check=True)
+    label_bs_roformer_outputs(model_dir, model)
+
+
 def run_model(mixdown: Path, model: str, output_dir: Path) -> dict[str, str]:
     model_dir = output_dir / model
     model_dir.mkdir(parents=True, exist_ok=True)
+
+    if model in EXTERNAL_MODELS:
+        run_external_model(mixdown, model, model_dir)
+        return canonicalize_outputs(model_dir)
 
     cmd = [
         "audio-separator",
