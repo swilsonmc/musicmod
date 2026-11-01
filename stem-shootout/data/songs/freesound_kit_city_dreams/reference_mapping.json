@@ -1,0 +1,22 @@
+{
+  "guitar": [
+    "Guitar.wav"
+  ],
+  "piano": [
+    "Epiano.wav"
+  ],
+  "other": [
+    "Chill_Chords.wav",
+    "Little_Synth.wav"
+  ],
+  "vocals": [
+    "Vox_Chops.wav"
+  ],
+  "bass": [
+    "Bass.wav"
+  ],
+  "drums": [
+    "Drums.wav",
+    "Percussion.wav"
+  ]
+}

@@ -1486,3 +1486,115 @@ longer a model-architecture dead end — swap `htdemucs_6s` for
 becomes usable. Guitar needs a different fix (see Banquet/query-based
 approaches above, or accept it as a known limitation). Full numbers in
 `stem-shootout/data/songs/a_light_that_never_comes_6stem/results.json`.
+
+## Creative Commons ground truth: source survey + six new scored test songs (2026-11-01)
+
+The owner asked for more CC-licensed stems to test "other" separation
+against, naming four sources to check.
+
+### What each source actually offers
+
+| Source | Usable as ground truth? | Why |
+|---|---|---|
+| **Freesound.org** | **Yes, the best of the four** | Isolated CC0 instrument recordings *and* whole-song stem packs. Public pages expose HQ MP3 previews without an account; original files need an account + OAuth. |
+| Europeana | No (stems), marginal (solos) | Open-license search for "multitrack/stems/isolated" returns bird calls and a luggage belt. Some openly licensed historical solo recordings exist (158 "solo piano", 57 "solo violin"), quality unvetted. Public API works with the demo key `api2demo`. |
+| LoC Citizen DJ | No | Short clips cut from full *mixed* recordings (filenames encode the offset, e.g. `_001_00-03-37.mp3`). Free to use, but nothing isolated. |
+| LoC National Jukebox | No | 1900–1925 mono 78rpm recordings, fully mixed; site returns 403 to automated requests (same as October). |
+| ccMixter (not on the list) | Lead only | API works (`ccmixter.org/api/query?f=json&tags=...`). Its only "multitrack" uploads are 9 CC-BY **drum** multitracks (boxboy333) — a candidate for scoring the still-unverified drum transcriber. Broader stem queries errored; not pursued. |
+
+**Freesound's "solo" tag is unreliable — read every description.** Of 15
+"solo" candidates, 3 weren't isolated: two jazz "rhythm_changes"
+recordings are full quartets, "Funky guitar solo" is a MIDI render with
+bass and drums, and the archtop jazz guitar is AI-generated (Suno).
+
+### New tooling
+
+`stem-shootout/scripts/build_freesound_mix.py` builds a catalog entry from
+a `freesound_recipe.json` (sound IDs → buckets): downloads previews,
+trims to a common length, and writes `reference_raw/` + `mixdown.wav` so
+the stems sum to the mix exactly. Two modes: `"level_sources": true`
+evens unrelated solos to equal loudness (the literature's "random mix"
+test); `false` keeps a real song's own balance. Anyone can rebuild any
+entry from its recipe — audio is never committed.
+
+### Six new catalog entries, scored (BS-RoFormer-SW vs htdemucs_6s, SDR dB)
+
+Random mixes of real CC0 solo recordings (equal loudness, 28–33s):
+
+| Test | Model | Guitar | Piano | Other |
+|---|---|---|---|---|
+| A: piano + acoustic guitar | htdemucs_6s | 10.56 | 8.17 | — |
+| | BS-RoFormer-SW | **16.74** | **16.78** | — |
+| B: piano + electric guitar | htdemucs_6s | 15.35 | 8.45 | — |
+| | BS-RoFormer-SW | **24.23** | **22.88** | — |
+| C: + violin + alto sax | htdemucs_6s | 6.62 | 5.23 | 8.32 |
+| | BS-RoFormer-SW | **13.76** | **14.29** | **17.68** |
+
+Coherent song loops, the producer's own balance (deadrobotmusic's CC0
+"song construction kits", 15–19s; 10 kits exist, 3 used):
+
+| Kit | Model | Guitar | Piano | Other |
+|---|---|---|---|---|
+| KTHNXBYE | htdemucs_6s | — | 0.10 | 9.32 |
+| | BS-RoFormer-SW | — | **8.06** | **14.53** |
+| In The Clouds | htdemucs_6s | 2.80 | 0.01 | 0.53 |
+| | BS-RoFormer-SW | **9.36** | 1.86 | 1.00 |
+| City Dreams | htdemucs_6s | 2.00 | -0.42 (e-piano) | 1.51 |
+| | BS-RoFormer-SW | 4.54 | -2.53 (e-piano) | 2.47 |
+
+BS-RoFormer-SW beats htdemucs_6s on 17 of 18 guitar/piano/other
+comparisons (all six new songs plus A Light That Never Comes); the one
+loss is City Dreams' electric piano, which both models fail.
+
+### The finding: loudness in the mix predicts success, not instrument type
+
+Across all 18 scored guitar/piano/other stems (these six + A Light That
+Never Comes), each stem's level relative to the whole mix correlates
+**0.80** with BS-RoFormer-SW's SDR. Stems within ~9 dB of the mix separate
+well (9–24 dB SDR); stems 15+ dB below it mostly fail (≤4 dB). The
+Linkin Park guitar (-15.6 dB) and the two kit pianos (-20 dB) are exactly
+the quiet ones. So "guitar is broken" from the 2026-10-31 entry is better
+read as "quiet parts are broken" — a real limitation, but a different one,
+and one random-mix tests (everything equally loud) completely hide.
+
+Two failure modes, checked by measuring the output levels rather than
+assumed from the SDR:
+1. **Wrong content at the right volume.** Linkin Park's "guitar" output is
+   as loud as the real guitar (-33.4 vs -32.8 dBFS) but is mostly other
+   instruments (SIR -23.6). An SDR near 0 does *not* by itself mean silence.
+2. **Unrecognized timbre.** In The Clouds' chopped/processed vocal samples
+   produced a genuinely silent vocals output (-82 dBFS vs -31 real), and
+   its loud synths (-4.3 dB) scored only 1.0 dB in "other" — their energy
+   went into the wrong buckets. City Dreams' electric piano wasn't treated
+   as "piano" at all.
+
+Caveats: kits are short electronic loops built from virtual instruments,
+not live recordings; previews are 128 kbps-class MP3s (fair, since mix
+and references come from the same decoded audio, but it caps the best
+achievable score); and the leaderboard's per-model *averages* cover
+different song sets per model (BS-RoFormer/htdemucs_6s only ran on the
+6-stem entries), so compare models within a song column, not across
+averages.
+
+### Housekeeping found along the way
+
+- A reboot on 2026-10-28 wiped `/tmp` (the session scratchpad), taking the
+  BS-RoFormer/MuScriptor venvs and BabySlakh with it. Research venvs now
+  live in `/var/www/projects/musicmod/tools/` (see CLAUDE.md).
+- Regenerating `LEADERBOARD.md` on this laptop silently put **Perth** back
+  into the averages, because its exclusion check needs audio that only
+  exists on the cloud machine. Fixed: `aggregate_results.py` now falls
+  back to a `measured_gain_ratio` recorded in the song's `config.json`
+  (Perth: 2.41).
+
+### Next steps this points to
+
+- Quiet-part recovery is the real gap for "other". Two cheap ideas:
+  re-separate the "other" output a second time (a cascade — what the MSR
+  2025 winner does), or let the user boost a quiet part's region before
+  separating.
+- The 7 untested deadrobotmusic kits and the CC-BY "Let Me Get a Drink"
+  stem pack (organ, Moog, synths) are ready-made next test songs.
+- For a true live-recording test, Freesound originals (needs the owner's
+  free account) or the Spheres orchestral set (2.8 GB stereo subset, no
+  registration).

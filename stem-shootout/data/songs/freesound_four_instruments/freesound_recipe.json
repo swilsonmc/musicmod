@@ -1,0 +1,34 @@
+{
+  "_note": "Each source checked against its Freesound description: actually solo, a real performance (not MIDI/AI), CC0.",
+  "seconds": 45,
+  "sources": [
+    {
+      "id": 418442,
+      "bucket": "piano",
+      "file": "piano.wav",
+      "title": "Hakren - Afternoon (Ambient Piano Solo)",
+      "url": "https://freesound.org/s/418442/"
+    },
+    {
+      "id": 418280,
+      "bucket": "guitar",
+      "file": "guitar.wav",
+      "title": "OneLetoutPuissant - Guitar solo.wav (acoustic)",
+      "url": "https://freesound.org/s/418280/"
+    },
+    {
+      "id": 575619,
+      "bucket": "other",
+      "file": "violin.wav",
+      "title": "szegvari - Summer - Violin Clean",
+      "url": "https://freesound.org/s/575619/"
+    },
+    {
+      "id": 607303,
+      "bucket": "other",
+      "file": "sax.wav",
+      "title": "DieRechnug - sax solo dry (alto)",
+      "url": "https://freesound.org/s/607303/"
+    }
+  ]
+}

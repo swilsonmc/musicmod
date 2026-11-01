@@ -1,0 +1,20 @@
+{
+  "_note": "Each source checked against its Freesound description: actually solo, a real performance (not MIDI/AI), CC0.",
+  "seconds": 45,
+  "sources": [
+    {
+      "id": 577844,
+      "bucket": "piano",
+      "file": "piano.wav",
+      "title": "szegvari - Summer night piano solo",
+      "url": "https://freesound.org/s/577844/"
+    },
+    {
+      "id": 457872,
+      "bucket": "guitar",
+      "file": "guitar.wav",
+      "title": "wfurgason - GuitarSolo-Cmaj.aif (electric)",
+      "url": "https://freesound.org/s/457872/"
+    }
+  ]
+}

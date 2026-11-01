@@ -1,0 +1,62 @@
+{
+  "_note": "Pack https://freesound.org/people/deadrobotmusic/packs/39036/ . Every stem except alternate takes (e.g. 'Guitar More Lofi') and the pack's own Full Kit.",
+  "level_sources": false,
+  "sources": [
+    {
+      "id": 699041,
+      "bucket": "guitar",
+      "file": "Guitar.wav",
+      "title": "City Dreams Guitar",
+      "url": "https://freesound.org/s/699041/"
+    },
+    {
+      "id": 699039,
+      "bucket": "piano",
+      "file": "Epiano.wav",
+      "title": "City Dreams Epiano",
+      "url": "https://freesound.org/s/699039/"
+    },
+    {
+      "id": 699037,
+      "bucket": "other",
+      "file": "Chill_Chords.wav",
+      "title": "City Dreams Chill Chords",
+      "url": "https://freesound.org/s/699037/"
+    },
+    {
+      "id": 699042,
+      "bucket": "other",
+      "file": "Little_Synth.wav",
+      "title": "City Dreams Little Synth",
+      "url": "https://freesound.org/s/699042/"
+    },
+    {
+      "id": 699044,
+      "bucket": "vocals",
+      "file": "Vox_Chops.wav",
+      "title": "City Dreams Vox Chops",
+      "url": "https://freesound.org/s/699044/"
+    },
+    {
+      "id": 699036,
+      "bucket": "bass",
+      "file": "Bass.wav",
+      "title": "City Dreams Bass",
+      "url": "https://freesound.org/s/699036/"
+    },
+    {
+      "id": 699038,
+      "bucket": "drums",
+      "file": "Drums.wav",
+      "title": "City Dreams Drums",
+      "url": "https://freesound.org/s/699038/"
+    },
+    {
+      "id": 699043,
+      "bucket": "drums",
+      "file": "Percussion.wav",
+      "title": "City Dreams Percussion",
+      "url": "https://freesound.org/s/699043/"
+    }
+  ]
+}

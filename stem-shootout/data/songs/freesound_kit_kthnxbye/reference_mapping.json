@@ -1,0 +1,17 @@
+{
+  "piano": [
+    "Piano.wav"
+  ],
+  "other": [
+    "Synth.wav",
+    "Pad.wav",
+    "Bonus_Lead_Solo.wav"
+  ],
+  "bass": [
+    "Bass.wav"
+  ],
+  "drums": [
+    "Drums.wav",
+    "Percussion.wav"
+  ]
+}

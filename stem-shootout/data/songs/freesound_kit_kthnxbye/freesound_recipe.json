@@ -1,0 +1,55 @@
+{
+  "_note": "Pack https://freesound.org/people/deadrobotmusic/packs/39040/ . Every stem except alternate takes (e.g. 'Guitar More Lofi') and the pack's own Full Kit.",
+  "level_sources": false,
+  "sources": [
+    {
+      "id": 699085,
+      "bucket": "piano",
+      "file": "Piano.wav",
+      "title": "KTHNXBYE Piano",
+      "url": "https://freesound.org/s/699085/"
+    },
+    {
+      "id": 699086,
+      "bucket": "other",
+      "file": "Synth.wav",
+      "title": "KTHNXBYE Synth",
+      "url": "https://freesound.org/s/699086/"
+    },
+    {
+      "id": 699083,
+      "bucket": "other",
+      "file": "Pad.wav",
+      "title": "KTHNXBYE Pad",
+      "url": "https://freesound.org/s/699083/"
+    },
+    {
+      "id": 699080,
+      "bucket": "other",
+      "file": "Bonus_Lead_Solo.wav",
+      "title": "KTHNXBYE Bonus Lead Solo",
+      "url": "https://freesound.org/s/699080/"
+    },
+    {
+      "id": 699079,
+      "bucket": "bass",
+      "file": "Bass.wav",
+      "title": "KTHNXBYE Bass",
+      "url": "https://freesound.org/s/699079/"
+    },
+    {
+      "id": 699081,
+      "bucket": "drums",
+      "file": "Drums.wav",
+      "title": "KTHNXBYE Drums",
+      "url": "https://freesound.org/s/699081/"
+    },
+    {
+      "id": 699084,
+      "bucket": "drums",
+      "file": "Percussion.wav",
+      "title": "KTHNXBYE Percussion",
+      "url": "https://freesound.org/s/699084/"
+    }
+  ]
+}

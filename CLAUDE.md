@@ -22,6 +22,7 @@ Secrets, user uploads, generated audio/MIDI, and backups live outside it, at
 │   ├── models/                downloaded AI model files (~1.7 GB; NOT /tmp, which reboots wipe)
 │   ├── midi/                  transcribed/edited MIDI
 │   ├── downloads/             yt-dlp video + ffmpeg-extracted audio per YouTube download (one UUID folder each)
+├── tools/bsr_venv/           research-only venv for bs-roformer-infer (stem-shootout's `bs_roformer_sw` model)
 │   └── logs/server.log        everything the server and audio-separator print
 └── backups/                  mysqldump output — see /var/www/CLAUDE.md "Backups"
 ```
@@ -75,6 +76,15 @@ https://download.pytorch.org/whl/cpu`): this laptop has only an Intel iGPU, and
 a plain install pulls the CUDA build — ~5 GB of unusable NVIDIA libraries.
 Then `pip install --no-deps basic-pitch==0.4.0` — its declared TensorFlow
 dependency doesn't exist for Python 3.12; it runs on its bundled ONNX model.
+
+**Research tools get their own venv under `/var/www/projects/musicmod/tools/`,
+never the session scratchpad.** The scratchpad lives in `/tmp`, which this
+machine clears on reboot: a reboot on 2026-10-28 wiped the BS-RoFormer and
+MuScriptor test venvs and the BabySlakh dataset mid-research. Downloaded
+model *weights* survive in `~/.cache/` (e.g. `~/.cache/bs-roformer-infer/`,
+`~/.cache/huggingface/`). To run the shootout with `bs_roformer_sw`, put both
+venvs on PATH:
+`PATH=/var/www/musicmod/venv/bin:/var/www/projects/musicmod/tools/bsr_venv/bin:$PATH`.
 
 Smoke test for transcription (synthetic audio, real code):
 `venv/bin/python -m tests.smoke_transcription`.

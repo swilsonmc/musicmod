@@ -1,0 +1,12 @@
+{
+  "piano": [
+    "piano.wav"
+  ],
+  "guitar": [
+    "guitar.wav"
+  ],
+  "other": [
+    "violin.wav",
+    "sax.wav"
+  ]
+}

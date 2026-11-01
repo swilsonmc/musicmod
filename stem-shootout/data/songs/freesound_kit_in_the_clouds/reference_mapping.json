@@ -1,0 +1,22 @@
+{
+  "guitar": [
+    "Clouds_Guitar.wav"
+  ],
+  "piano": [
+    "Clouds_Cute_Piano_Harmony.wav"
+  ],
+  "other": [
+    "Clouds_Chord_Synth.wav",
+    "Clouds_Shaky_Synth.wav",
+    "Clouds_Melodic_Drone.wav"
+  ],
+  "vocals": [
+    "Clouds_Ethereal_Vox_Chops.wav",
+    "Clouds_Ethereal_Vox_Chops_2.wav",
+    "Clouds_Ethereal_Vox_Atmosphere.wav"
+  ],
+  "drums": [
+    "Clouds_Drums.wav",
+    "Clouds_Percussion.wav"
+  ]
+}

@@ -34,7 +34,10 @@ def check_gain_staging(song_dir: Path, config: dict) -> float | None:
     files, which a fresh checkout won't have until run_shootout.py runs again)."""
     full_mix_path = song_dir / "reference_bucketed" / "full_mix.wav"
     if not full_mix_path.exists():
-        return None
+        # A ratio measured once on a machine that had the audio, recorded in
+        # config.json so an exclusion doesn't silently lapse on a checkout
+        # without it (Perth's did, once).
+        return config.get("measured_gain_ratio")
     mixdown = load_audio(song_dir / config["mixdown"])
     full_mix = load_audio(full_mix_path)
     return gain_staging_ratio(mixdown, full_mix)

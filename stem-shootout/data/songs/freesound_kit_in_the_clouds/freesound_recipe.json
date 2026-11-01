@@ -1,0 +1,76 @@
+{
+  "_note": "Pack https://freesound.org/people/deadrobotmusic/packs/39038/ . Every stem except alternate takes (e.g. 'Guitar More Lofi') and the pack's own Full Kit.",
+  "level_sources": false,
+  "sources": [
+    {
+      "id": 699064,
+      "bucket": "guitar",
+      "file": "Clouds_Guitar.wav",
+      "title": "In The Clouds Guitar",
+      "url": "https://freesound.org/s/699064/"
+    },
+    {
+      "id": 699057,
+      "bucket": "piano",
+      "file": "Clouds_Cute_Piano_Harmony.wav",
+      "title": "In The Clouds Cute Piano Harmony",
+      "url": "https://freesound.org/s/699057/"
+    },
+    {
+      "id": 699056,
+      "bucket": "other",
+      "file": "Clouds_Chord_Synth.wav",
+      "title": "In The Clouds Chord Synth",
+      "url": "https://freesound.org/s/699056/"
+    },
+    {
+      "id": 699068,
+      "bucket": "other",
+      "file": "Clouds_Shaky_Synth.wav",
+      "title": "In The Clouds Shaky Synth",
+      "url": "https://freesound.org/s/699068/"
+    },
+    {
+      "id": 699065,
+      "bucket": "other",
+      "file": "Clouds_Melodic_Drone.wav",
+      "title": "In The Clouds Melodic Drone",
+      "url": "https://freesound.org/s/699065/"
+    },
+    {
+      "id": 699061,
+      "bucket": "vocals",
+      "file": "Clouds_Ethereal_Vox_Chops.wav",
+      "title": "In The Clouds Ethereal Vox Chops",
+      "url": "https://freesound.org/s/699061/"
+    },
+    {
+      "id": 699060,
+      "bucket": "vocals",
+      "file": "Clouds_Ethereal_Vox_Chops_2.wav",
+      "title": "In The Clouds Ethereal Vox Chops 2",
+      "url": "https://freesound.org/s/699060/"
+    },
+    {
+      "id": 699059,
+      "bucket": "vocals",
+      "file": "Clouds_Ethereal_Vox_Atmosphere.wav",
+      "title": "In The Clouds Ethereal Vox Atmosphere",
+      "url": "https://freesound.org/s/699059/"
+    },
+    {
+      "id": 699058,
+      "bucket": "drums",
+      "file": "Clouds_Drums.wav",
+      "title": "In The Clouds Drums",
+      "url": "https://freesound.org/s/699058/"
+    },
+    {
+      "id": 699067,
+      "bucket": "drums",
+      "file": "Clouds_Percussion.wav",
+      "title": "In The Clouds Percussion",
+      "url": "https://freesound.org/s/699067/"
+    }
+  ]
+}

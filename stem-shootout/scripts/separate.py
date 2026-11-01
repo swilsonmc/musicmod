@@ -106,8 +106,10 @@ def canonicalize_outputs(model_dir: Path) -> dict[str, str]:
 
 
 # Models audio-separator doesn't ship, run through their own CLI instead.
-# bs-roformer-infer (github.com/openmirlab/bs-roformer-infer) must be on PATH;
-# install it in its own venv, CPU torch first, as with everything here.
+# bs-roformer-infer (github.com/openmirlab/bs-roformer-infer) must be on PATH.
+# On the dev laptop it lives in its own venv at
+# /var/www/projects/musicmod/tools/bsr_venv (CPU torch first) — not /tmp,
+# which a reboot wipes; see CLAUDE.md.
 EXTERNAL_MODELS = {
     "bs_roformer_sw": "roformer-model-bs-roformer-sw-by-jarredou",
 }

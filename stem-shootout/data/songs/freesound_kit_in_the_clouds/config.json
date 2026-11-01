@@ -1,0 +1,14 @@
+{
+  "song_name": "In The Clouds (deadrobotmusic kit, 132bpm G maj)",
+  "artist": "deadrobotmusic (CC0)",
+  "album": "Freesound song construction kits",
+  "license_note": "CC0 (public domain) song construction kit by deadrobotmusic on Freesound.org; mixdown is the sum of its stems (MUSDB18 methodology). Audio not committed - rebuild with scripts/build_freesound_mix.py.",
+  "genre_notes": "Short (15-19s) electronic production loop; coherent arrangement at the producer's own levels.",
+  "mixdown": "mixdown.wav",
+  "raw_multitrack_dir": "reference_raw/",
+  "bucket_mapping": "reference_mapping.json",
+  "models": [
+    "htdemucs_6s.yaml",
+    "bs_roformer_sw"
+  ]
+}

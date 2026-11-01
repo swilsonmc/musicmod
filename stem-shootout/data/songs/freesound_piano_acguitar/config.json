@@ -1,0 +1,14 @@
+{
+  "song_name": "Freesound mix A: piano + acoustic guitar",
+  "artist": "various Freesound contributors (CC0)",
+  "album": "n/a",
+  "license_note": "Isolated CC0 (public domain) recordings from Freesound.org, mixed by scripts/build_freesound_mix.py. Audio is not committed; rebuild it from freesound_recipe.json.",
+  "genre_notes": "Unrelated solo recordings summed at equal loudness (random-mix evaluation, as in the separation literature) - tests timbre separation, not a coherent arrangement.",
+  "mixdown": "mixdown.wav",
+  "raw_multitrack_dir": "reference_raw/",
+  "bucket_mapping": "reference_mapping.json",
+  "models": [
+    "htdemucs_6s.yaml",
+    "bs_roformer_sw"
+  ]
+}
