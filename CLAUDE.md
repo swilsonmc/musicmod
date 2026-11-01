@@ -21,6 +21,7 @@ Secrets, user uploads, generated audio/MIDI, and backups live outside it, at
 │   ├── stems/                 separated stem output
 │   ├── models/                downloaded AI model files (~1.7 GB; NOT /tmp, which reboots wipe)
 │   ├── midi/                  transcribed/edited MIDI
+│   ├── downloads/             yt-dlp video + ffmpeg-extracted audio per YouTube download (one UUID folder each)
 │   └── logs/server.log        everything the server and audio-separator print
 └── backups/                  mysqldump output — see /var/www/CLAUDE.md "Backups"
 ```
@@ -33,7 +34,29 @@ nested.
 
 `ffmpeg` must be installed system-wide (`sudo apt install ffmpeg`) —
 `audio-separator` shells out to it directly and fails without it on PATH.
-Not pip-installable; it's a system package, not a Python one.
+Not pip-installable; it's a system package, not a Python one. `app/youtube.py`
+also shells out to it directly, to pull the audio track out of a downloaded
+video.
+
+There's an unrelated, older `yt-dlp` at `/usr/bin/yt-dlp` (an apt package,
+root-owned, version 2024.04.09) — not this project's and not touched by it.
+This project's own copy lives in `musicmod/venv/`, kept current by
+`ensure_ytdlp_updated()` (a real `pip install --upgrade` before every single
+download, not just at install time — YouTube changes often enough that a
+stale yt-dlp is the most common way this kind of tool breaks). The systemd
+service's `PATH` (see "Running the server" below) already puts the venv
+first, so the bare `yt-dlp` command in `app/youtube.py` resolves to the
+current one in production; a manual test from an interactive shell needs
+`PATH=/var/www/musicmod/venv/bin:$PATH` set first, or it'll silently hit the
+old system one instead and fail confusingly (`--js-runtimes: no such option`).
+
+YouTube increasingly requires solving a small JS "challenge" to unlock every
+format; `app/youtube.py` points yt-dlp at the system's Node (`/usr/bin/node`,
+already present, already on the service's `PATH` — no new dependency) via
+`--js-runtimes node:...` plus `--remote-components ejs:github` (yt-dlp's own
+official challenge-solver component, fetched from their GitHub releases, not
+a third-party script). Without both flags, some downloads emit a `n
+challenge solving failed` warning and may be missing the best-quality format.
 
 ## Python environment
 

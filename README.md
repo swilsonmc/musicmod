@@ -103,6 +103,16 @@ change them in `app/config.py` and `deploy/` if yours differ.
 The first separation downloads about 1.7 GB of model files, cached in
 `storage/models/` for every run after.
 
+### Downloading source audio from YouTube
+
+The **Downloads** page (`/downloads`) takes a YouTube URL instead of a
+local file: `yt-dlp` fetches the video (updated to the latest release
+first, every time — YouTube changes often enough that a stale copy is
+the most common way this breaks), then `ffmpeg` pulls just the audio
+track out into a clean WAV. Both files are kept and listed on that page;
+a **Separate stems** button sends the extracted audio through the exact
+same separation/transcription pipeline a regular upload uses.
+
 ## Phase 3 (in progress): transcription to MIDI, and editing it
 
 After separation finishes, every stem — including drums now — is

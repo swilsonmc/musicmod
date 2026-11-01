@@ -14,3 +14,4 @@ audioread  # audio-separator's librosa path needs this; not pulled in automatica
 # Python 3.12 build, but it ships an ONNX model that runs on onnxruntime instead.
 pretty-midi
 mir-eval
+yt-dlp==2026.10.26

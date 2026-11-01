@@ -25,6 +25,23 @@ CREATE TABLE IF NOT EXISTS stems (
     FOREIGN KEY (upload_id) REFERENCES uploads(id)
 );
 
+CREATE TABLE IF NOT EXISTS downloads (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    url VARCHAR(500) NOT NULL,
+    title VARCHAR(500) NULL,
+    stored_dir VARCHAR(255) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    progress VARCHAR(255) NULL,
+    error TEXT NULL,
+    file_size_bytes BIGINT NULL,
+    duration_seconds INT NULL,
+    upload_id INT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    started_at TIMESTAMP NULL,
+    finished_at TIMESTAMP NULL,
+    FOREIGN KEY (upload_id) REFERENCES uploads(id)
+);
+
 CREATE TABLE IF NOT EXISTS midi_tracks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     upload_id INT NOT NULL,

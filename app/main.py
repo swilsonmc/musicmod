@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import config, db
 from .separation import separate_upload
 from .transcription import GM_PROGRAM, METHOD_BY_STEM, notes_json, save_notes, transcribe_stems
+from .youtube import download_video, ensure_ytdlp_updated, extract_audio, fetch_metadata
 
 app = FastAPI(title="musicmod")
 
@@ -33,7 +34,7 @@ _cpu_lock = threading.Lock()
 
 @app.on_event("startup")
 def on_startup() -> None:
-    for d in (config.UPLOADS_DIR, config.STEMS_DIR, config.MODELS_DIR, config.MIDI_DIR):
+    for d in (config.UPLOADS_DIR, config.STEMS_DIR, config.MODELS_DIR, config.MIDI_DIR, config.DOWNLOADS_DIR):
         d.mkdir(parents=True, exist_ok=True)
     db.init_schema()
 
@@ -51,6 +52,11 @@ def on_startup() -> None:
         "WHERE transcribe_status IN ('pending', 'processing')",
         (now, "Interrupted — the server was stopped before this finished. Click Transcribe to retry."),
     )
+    db.execute(
+        "UPDATE downloads SET status = 'error', progress = NULL, finished_at = %s, error = %s "
+        "WHERE status IN ('pending', 'downloading', 'extracting')",
+        (now, "Interrupted — the server was stopped before this finished. Download it again to retry."),
+    )
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -61,6 +67,11 @@ def index() -> HTMLResponse:
 @app.get("/archive", response_class=HTMLResponse)
 def archive() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "archive.html").read_text())
+
+
+@app.get("/downloads", response_class=HTMLResponse)
+def downloads_page() -> HTMLResponse:
+    return HTMLResponse((STATIC_DIR / "downloads.html").read_text())
 
 
 def _set(upload_id: int, **fields) -> None:
@@ -132,18 +143,16 @@ def _run_transcription(upload_id: int, stored_dir: str) -> None:
                  transcribe_error=str(exc)[:1000], transcribe_progress=None)
 
 
-@app.post("/api/uploads")
-async def create_upload(file: UploadFile, background_tasks: BackgroundTasks):
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(400, f"Unsupported file type {suffix!r}")
-
+def _enqueue_upload(original_filename: str, source_path: Path, background_tasks: BackgroundTasks) -> int:
+    """Registers an already-on-disk audio file as an upload and queues
+    separation. Shared by create_upload() (a fresh multipart file) and
+    start_download_separation() (audio ffmpeg already extracted from a
+    YouTube download) — same job from here on in either case."""
     stored_dir = str(uuid.uuid4())
     dest_dir = config.UPLOADS_DIR / stored_dir
     dest_dir.mkdir(parents=True)
-    dest_path = dest_dir / f"original{suffix}"
-    with dest_path.open("wb") as out:
-        shutil.copyfileobj(file.file, out)
+    dest_path = dest_dir / f"original{source_path.suffix.lower()}"
+    shutil.copyfile(source_path, dest_path)
     file_size_bytes = dest_path.stat().st_size
 
     conn = db.get_connection()
@@ -152,13 +161,34 @@ async def create_upload(file: UploadFile, background_tasks: BackgroundTasks):
             cur.execute(
                 "INSERT INTO uploads (original_filename, stored_dir, status, file_size_bytes) "
                 "VALUES (%s, %s, 'pending', %s)",
-                (file.filename, stored_dir, file_size_bytes),
+                (original_filename, stored_dir, file_size_bytes),
             )
             upload_id = cur.lastrowid
     finally:
         conn.close()
 
     background_tasks.add_task(_run_separation, upload_id, stored_dir)
+    return upload_id
+
+
+@app.post("/api/uploads")
+async def create_upload(file: UploadFile, background_tasks: BackgroundTasks):
+    suffix = Path(file.filename).suffix.lower()
+    if suffix not in ALLOWED_SUFFIXES:
+        raise HTTPException(400, f"Unsupported file type {suffix!r}")
+
+    # _enqueue_upload() expects a file already on disk (it copies rather than
+    # streams, so a download's extracted audio can be reused byte-for-byte);
+    # a fresh multipart upload needs writing out first.
+    tmp_dir = config.UPLOADS_DIR / f"tmp-{uuid.uuid4()}"
+    tmp_dir.mkdir(parents=True)
+    tmp_path = tmp_dir / f"incoming{suffix}"
+    try:
+        with tmp_path.open("wb") as out:
+            shutil.copyfileobj(file.file, out)
+        upload_id = _enqueue_upload(file.filename, tmp_path, background_tasks)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
     return {"id": upload_id, "status": "pending"}
 
 
@@ -265,3 +295,114 @@ def get_stem(upload_id: int, stem_name: str):
     if row is None:
         raise HTTPException(404, "No such stem")
     return FileResponse(config.STEMS_DIR / row["file_path"], media_type="audio/wav")
+
+
+DOWNLOAD_COLUMNS = (
+    "id, url, title, status, progress, error, file_size_bytes, duration_seconds, "
+    "upload_id, created_at, started_at, finished_at"
+)
+
+
+def _set_download(download_id: int, **fields) -> None:
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            set_clause = ", ".join(f"{k} = %s" for k in fields)
+            cur.execute(f"UPDATE downloads SET {set_clause} WHERE id = %s", (*fields.values(), download_id))
+    finally:
+        conn.close()
+
+
+def _run_download(download_id: int, url: str, stored_dir: str) -> None:
+    """Downloads never compete with separation/transcription for the CPU
+    lock above — they're network- and ffmpeg-bound, not the heavy model
+    inference that lock exists to serialize, so several can run at once."""
+    dest_dir = config.DOWNLOADS_DIR / stored_dir
+    dest_dir.mkdir(parents=True)
+    _set_download(download_id, status="downloading", started_at=datetime.now())
+    try:
+        ensure_ytdlp_updated(lambda text: _set_download(download_id, progress=text))
+
+        meta = fetch_metadata(url)
+        _set_download(download_id, title=meta["title"][:500], duration_seconds=meta["duration_seconds"])
+
+        video_path = download_video(url, dest_dir, lambda text: _set_download(download_id, progress=text))
+
+        _set_download(download_id, status="extracting", progress="Extracting audio…")
+        audio_path = dest_dir / "audio.wav"
+        extract_audio(
+            video_path, audio_path, meta["duration_seconds"],
+            lambda text: _set_download(download_id, progress=text),
+        )
+
+        _set_download(
+            download_id, status="done", finished_at=datetime.now(), progress="Done",
+            file_size_bytes=audio_path.stat().st_size,
+        )
+    except Exception as exc:  # bad URL, region/age-restricted video, yt-dlp/ffmpeg failure — record, don't crash the server
+        _set_download(download_id, status="error", finished_at=datetime.now(), error=str(exc)[:1000], progress=None)
+
+
+@app.post("/api/downloads")
+def create_download(background_tasks: BackgroundTasks, url: str = Body(..., embed=True)):
+    url = url.strip()
+    if not url:
+        raise HTTPException(400, "No URL given")
+
+    stored_dir = str(uuid.uuid4())
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO downloads (url, stored_dir, status) VALUES (%s, %s, 'pending')",
+                (url, stored_dir),
+            )
+            download_id = cur.lastrowid
+    finally:
+        conn.close()
+
+    background_tasks.add_task(_run_download, download_id, url, stored_dir)
+    return {"id": download_id, "status": "pending"}
+
+
+@app.get("/api/downloads")
+def list_downloads():
+    return db.fetch_all(f"SELECT {DOWNLOAD_COLUMNS} FROM downloads ORDER BY id DESC")
+
+
+@app.get("/api/downloads/{download_id}")
+def get_download(download_id: int):
+    row = db.fetch_one(f"SELECT {DOWNLOAD_COLUMNS} FROM downloads WHERE id = %s", (download_id,))
+    if row is None:
+        raise HTTPException(404, "No such download")
+    return row
+
+
+@app.delete("/api/downloads/{download_id}")
+def delete_download(download_id: int):
+    row = db.fetch_one("SELECT stored_dir, status FROM downloads WHERE id = %s", (download_id,))
+    if row is None:
+        raise HTTPException(404, "No such download")
+    if row["status"] in ("pending", "downloading", "extracting"):
+        raise HTTPException(409, "Still downloading — wait for it to finish or error out first")
+    shutil.rmtree(config.DOWNLOADS_DIR / row["stored_dir"], ignore_errors=True)
+    db.execute("DELETE FROM downloads WHERE id = %s", (download_id,))
+    return {"deleted": download_id}
+
+
+@app.post("/api/downloads/{download_id}/separate")
+def start_download_separation(download_id: int, background_tasks: BackgroundTasks):
+    row = db.fetch_one(
+        "SELECT stored_dir, status, title, url FROM downloads WHERE id = %s", (download_id,)
+    )
+    if row is None:
+        raise HTTPException(404, "No such download")
+    if row["status"] != "done":
+        raise HTTPException(409, "Audio isn't extracted yet")
+    audio_path = config.DOWNLOADS_DIR / row["stored_dir"] / "audio.wav"
+    if not audio_path.exists():
+        raise HTTPException(409, "Extracted audio file is missing")
+
+    upload_id = _enqueue_upload(row["title"] or row["url"], audio_path, background_tasks)
+    _set_download(download_id, upload_id=upload_id)
+    return {"upload_id": upload_id, "status": "pending"}

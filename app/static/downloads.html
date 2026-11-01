@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>musicmod — downloads</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 1000px; margin: 2rem auto; padding: 0 1rem; }
+  nav a { margin-right: 1rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid #ddd; }
+  .status-pending, .status-downloading, .status-extracting { color: #946200; }
+  .status-error { color: #b00020; }
+  .status-done { color: #1a7f37; }
+  #download-form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
+  #download-form input { flex: 1; padding: 0.4rem; }
+  button.danger { color: #b00020; }
+  td.actions { display: flex; gap: 0.5rem; }
+</style>
+</head>
+<body>
+  <nav><a href="/">Player</a><a href="/archive">Archive</a><a href="/downloads">Downloads</a></nav>
+  <h1>musicmod — download from YouTube</h1>
+  <p>Paste a YouTube URL. yt-dlp is updated to the latest version before every download attempt — YouTube changes often enough that a stale copy is the most common way this breaks.</p>
+
+  <form id="download-form">
+    <input type="url" id="url-input" placeholder="https://www.youtube.com/watch?v=..." required>
+    <button type="submit">Download</button>
+  </form>
+
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Title</th><th>Status</th><th>Size</th><th>Requested</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="downloads-body"></tbody>
+  </table>
+
+  <script src="/static/format.js"></script>
+  <script src="/static/downloads.js"></script>
+</body>
+</html>
