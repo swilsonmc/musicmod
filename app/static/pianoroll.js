@@ -19,8 +19,46 @@ function pitchRange(notes) {
   return [lo - 1, hi + 1];
 }
 
+const BLACK_KEY_PITCH_CLASSES = new Set([1, 3, 6, 8, 10]);
+
+// Picks a tick spacing (seconds) from a fixed set so ruler labels stay
+// readably spaced apart regardless of zoom level, instead of overlapping.
+function pickTimeStep(pxWidth, duration) {
+  const candidates = [0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+  if (duration <= 0) return 1;
+  const pxPerSecond = pxWidth / duration;
+  for (const c of candidates) {
+    if (c * pxPerSecond >= 55) return c;
+  }
+  return candidates[candidates.length - 1];
+}
+
+function shortTime(t, step) {
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return step < 1 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${m}:${Math.round(s).toString().padStart(2, '0')}`;
+}
+
 function createPianoRoll(container, { getDuration, isDrum, onChange }) {
   container.innerHTML = '';
+
+  // A small grid, not just the scrollable canvas: a corner spacer, a time
+  // ruler across the top, and a note-name column down the left — a fixed
+  // coordinate system to read positions off of (e.g. "1:23, near C4"),
+  // independent of whatever the current zoom level happens to be.
+  const grid = document.createElement('div');
+  grid.className = 'roll-grid';
+  const corner = document.createElement('div');
+  corner.className = 'roll-corner';
+  const rulerWrap = document.createElement('div');
+  rulerWrap.className = 'roll-ruler-wrap';
+  const rulerCanvas = document.createElement('canvas');
+  rulerWrap.appendChild(rulerCanvas);
+  const keysWrap = document.createElement('div');
+  keysWrap.className = 'roll-keys-wrap';
+  const keysCanvas = document.createElement('canvas');
+  keysWrap.appendChild(keysCanvas);
+
   const viewport = document.createElement('div');
   viewport.className = 'roll';
   const inner = document.createElement('div');
@@ -30,19 +68,64 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
   playhead.className = 'playhead';
   inner.append(canvas, playhead);
   viewport.append(inner);
-  container.appendChild(viewport);
+
+  grid.append(corner, rulerWrap, keysWrap, viewport);
+  container.appendChild(grid);
 
   let notes = [];
   let selected = new Set(); // note references (not indices — stable across sort/splice)
   let history = [];
-  let zoom = 1;
+  let zoom = 1; // scales both axes together, so note rows grow along with time width
+  let lastPlayheadFrac = 0;
   let drag = null;   // { kind: 'move'|'resize', note, startTime, startPitch, origStart, origEnd }
   let marquee = null; // { x0, y0, x1, y1 } in canvas CSS-pixel space, while ctrl-dragging empty space
 
+  // The ruler/keys panes have overflow:hidden (so they never show their own
+  // scrollbar) and are shifted by hand to track the real viewport's scroll —
+  // the classic frozen-header/frozen-column trick.
+  viewport.addEventListener('scroll', () => {
+    rulerCanvas.style.transform = `translateX(${-viewport.scrollLeft}px)`;
+    keysCanvas.style.transform = `translateY(${-viewport.scrollTop}px)`;
+  });
+
+  function verticalCenterFraction() {
+    const innerH = inner.clientHeight || 1;
+    return (viewport.scrollTop + viewport.clientHeight / 2) / innerH;
+  }
+
+  function restoreVerticalCenter(frac) {
+    const innerH = inner.clientHeight || 1;
+    const max = Math.max(0, innerH - viewport.clientHeight);
+    viewport.scrollTop = Math.max(0, Math.min(max, frac * innerH - viewport.clientHeight / 2));
+  }
+
+  // Keeps the current playhead position in view (and centered) across a
+  // zoom change — without this, zooming leaves the scroll position in
+  // viewport-pixel terms, which no longer corresponds to the same moment in
+  // the song once the inner width has changed, so the playhead drifts off.
+  function centerOnPlayhead() {
+    const innerW = inner.clientWidth || 1;
+    const x = lastPlayheadFrac * innerW;
+    const max = Math.max(0, innerW - viewport.clientWidth);
+    viewport.scrollLeft = Math.max(0, Math.min(max, x - viewport.clientWidth / 2));
+  }
+
   function applyZoom() {
-    const base = viewport.clientWidth || 1;
-    inner.style.width = `${Math.round(base * zoom)}px`;
+    const baseW = viewport.clientWidth || 1;
+    const baseH = viewport.clientHeight || 1;
+    inner.style.width = `${Math.round(baseW * zoom)}px`;
+    inner.style.height = `${Math.round(baseH * zoom)}px`;
     draw();
+    drawRuler();
+    drawKeys();
+  }
+
+  function rezoom(factor) {
+    const vFrac = verticalCenterFraction();
+    zoom = Math.max(1, Math.min(MAX_ZOOM, zoom * factor));
+    applyZoom();
+    centerOnPlayhead();
+    restoreVerticalCenter(vFrac);
   }
 
   function layout() {
@@ -62,6 +145,12 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
+    for (let p = lo; p <= hi; p++) {
+      if (BLACK_KEY_PITCH_CLASSES.has(((p % 12) + 12) % 12)) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.035)';
+        ctx.fillRect(0, (hi - p) * rowH, w, rowH);
+      }
+    }
     ctx.fillStyle = 'rgba(0, 0, 0, 0.07)';
     for (let p = Math.ceil(lo / 12) * 12; p <= hi; p += 12) {
       ctx.fillRect(0, (hi - p + 1) * rowH - 0.5, w, 1);
@@ -80,6 +169,76 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
       ctx.strokeStyle = 'rgba(60, 70, 190, 0.6)';
       ctx.fillRect(x, y, Math.abs(marquee.x1 - marquee.x0), Math.abs(marquee.y1 - marquee.y0));
       ctx.strokeRect(x, y, Math.abs(marquee.x1 - marquee.x0), Math.abs(marquee.y1 - marquee.y0));
+    }
+  }
+
+  function drawRuler() {
+    const dpr = window.devicePixelRatio || 1;
+    const { duration, w } = layout();
+    const h = rulerWrap.clientHeight || 1;
+    // Set in actual CSS px here, not via a CSS percentage: this canvas must
+    // span the full (possibly zoomed-wide) inner width while its wrap stays
+    // small and clipped, which a parent-relative percentage can't express.
+    rulerCanvas.style.width = `${w}px`;
+    rulerCanvas.style.height = `${h}px`;
+    rulerCanvas.width = w * dpr;
+    rulerCanvas.height = h * dpr;
+    const ctx = rulerCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '10px system-ui, sans-serif';
+    ctx.textBaseline = 'top';
+    const step = pickTimeStep(w, duration);
+    for (let t = 0; t <= duration; t += step) {
+      const x = (t / duration) * w;
+      ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, h - 5);
+      ctx.lineTo(x + 0.5, h);
+      ctx.stroke();
+      ctx.fillStyle = '#666';
+      ctx.fillText(shortTime(t, step), x + 2, 2);
+    }
+  }
+
+  function drawKeys() {
+    const dpr = window.devicePixelRatio || 1;
+    const { lo, hi, rowH } = layout();
+    const w = keysWrap.clientWidth || 1;
+    const h = inner.clientHeight || 1;
+    // Same reasoning as drawRuler(): this canvas must span the full
+    // (possibly zoomed-tall) inner height, set explicitly rather than via a
+    // CSS percentage of its small, clipped wrap.
+    keysCanvas.style.width = `${w}px`;
+    keysCanvas.style.height = `${h}px`;
+    keysCanvas.width = w * dpr;
+    keysCanvas.height = h * dpr;
+    const ctx = keysCanvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    ctx.font = '9px system-ui, sans-serif';
+    ctx.textBaseline = 'middle';
+    for (let p = lo; p <= hi; p++) {
+      const pitchClass = ((p % 12) + 12) % 12;
+      const isC = pitchClass === 0;
+      const y0 = (hi - p) * rowH;
+      if (BLACK_KEY_PITCH_CLASSES.has(pitchClass)) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.035)';
+        ctx.fillRect(0, y0, w, rowH);
+      }
+      // Only label rows that have room to show text without overlapping —
+      // always C (the octave anchor), every semitone once rows are tall enough.
+      if (isC || rowH >= 13) {
+        ctx.fillStyle = isC ? '#333' : '#999';
+        ctx.fillText(noteName(p), 3, y0 + rowH / 2);
+      }
+      if (isC) {
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+        ctx.beginPath();
+        ctx.moveTo(0, y0 + rowH - 0.5);
+        ctx.lineTo(w, y0 + rowH - 0.5);
+        ctx.stroke();
+      }
     }
   }
 
@@ -111,6 +270,7 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
   function commit() {
     notes.sort((a, b) => a[1] - b[1]);
     draw();
+    drawKeys(); // pitch range (and so row height/labels) can shift with an edit
     onChange(notes.map((n) => n.slice()));
   }
 
@@ -164,6 +324,7 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
       drag = { kind: 'resize', note, startTime: time, origStart: time, origEnd: time + DEFAULT_NOTE_SECONDS, origPitch: pitch };
     }
     draw();
+    drawKeys();
     e.preventDefault();
   });
 
@@ -243,14 +404,18 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
       notes = history.pop();
       selected = new Set();
       draw();
+      drawKeys();
       onChange(notes.map((n) => n.slice()));
       return true;
     },
     hasUndo() { return history.length > 0; },
     redraw: applyZoom,
-    zoomIn() { zoom = Math.min(MAX_ZOOM, zoom * 1.6); applyZoom(); },
-    zoomOut() { zoom = Math.max(1, zoom / 1.6); applyZoom(); },
-    setPlayheadFraction(f) { playhead.style.left = `${Math.max(0, Math.min(1, f)) * 100}%`; },
+    zoomIn() { rezoom(1.6); },
+    zoomOut() { rezoom(1 / 1.6); },
+    setPlayheadFraction(f) {
+      lastPlayheadFrac = Math.max(0, Math.min(1, f));
+      playhead.style.left = `${lastPlayheadFrac * 100}%`;
+    },
   };
 }
 

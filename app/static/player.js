@@ -308,8 +308,10 @@ function renderDone(upload) {
     timeEl.textContent = '0:00.00';
     const muteBtn = document.createElement('button');
     muteBtn.textContent = 'Mute';
+    muteBtn.className = 'toggle-btn mute-btn';
     const soloBtn = document.createElement('button');
     soloBtn.textContent = 'Solo';
+    soloBtn.className = 'toggle-btn solo-btn';
     const volume = document.createElement('input');
     Object.assign(volume, { type: 'range', min: 0, max: 1, step: 0.01, value: 1 });
     controls.append(label, timeEl, muteBtn, soloBtn, volume);
@@ -318,6 +320,7 @@ function renderDone(upload) {
     if (midi) {
       synthBtn = document.createElement('button');
       synthBtn.textContent = 'Synth';
+      synthBtn.className = 'toggle-btn synth-btn';
       synthBtn.title = 'Also play the transcribed notes through a simple synth, to compare against the real audio';
       const link = document.createElement('a');
       link.href = midi.url;
@@ -424,7 +427,7 @@ function renderDone(upload) {
 
       synthBtn.onclick = () => {
         t.synthOn = !t.synthOn;
-        synthBtn.style.fontWeight = t.synthOn ? 'bold' : 'normal';
+        synthBtn.classList.toggle('active', t.synthOn);
         restartSynthIfPlaying();
       };
     } else if (upload.untranscribable.includes(stemName) && upload.transcribe_status === 'done') {
@@ -438,12 +441,12 @@ function renderDone(upload) {
 
     muteBtn.onclick = () => {
       t.muted = !t.muted;
-      muteBtn.style.fontWeight = t.muted ? 'bold' : 'normal';
+      muteBtn.classList.toggle('active', t.muted);
       engine.setMuted(stemName, t.muted);
     };
     soloBtn.onclick = () => {
       t.soloed = !t.soloed;
-      soloBtn.style.fontWeight = t.soloed ? 'bold' : 'normal';
+      soloBtn.classList.toggle('active', t.soloed);
       engine.setSoloed(stemName, t.soloed);
     };
     volume.oninput = () => {
