@@ -90,6 +90,40 @@ def download_video(url: str, dest_dir: Path, on_progress: Callable[[str], None] 
     return produced[0]
 
 
+def probe_media(path: Path) -> dict | None:
+    """ffprobe-based validation for a file the user handed us directly (drag-
+    and-drop, not a URL) — checking only the extension would accept a
+    corrupted file or a renamed non-media one; this actually opens it and
+    reads real stream/format info. Returns None if ffprobe can't find a
+    usable audio or video stream, else {"kind": "audio"|"video",
+    "duration_seconds": float|None} ("video" whenever there's a video
+    stream, even with audio too, since that's the case that needs audio
+    extracted first)."""
+    result = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration:stream=codec_type", "-of", "json", str(path)],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    kinds = {s.get("codec_type") for s in data.get("streams", [])}
+    if "video" in kinds:
+        kind = "video"
+    elif "audio" in kinds:
+        kind = "audio"
+    else:
+        return None
+    duration = None
+    try:
+        duration = float(data["format"]["duration"])
+    except (KeyError, TypeError, ValueError):
+        pass
+    return {"kind": kind, "duration_seconds": duration}
+
+
 def extract_audio(
     video_path: Path, dest_path: Path, duration_seconds: float | None = None,
     on_progress: Callable[[str], None] = lambda s: None,

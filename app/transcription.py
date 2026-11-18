@@ -106,15 +106,22 @@ def save_notes(midi_path: Path, notes: list[list[float]], is_drum: bool, program
 
 
 def transcribe_stems(
-    stems: dict[str, Path], out_dir: Path, on_progress: Callable[[str], None] = lambda s: None
+    stems: dict[str, Path], out_dir: Path,
+    on_progress: Callable[[int, int, int, str], None] = lambda stage, total, pct, detail: None,
 ) -> dict[str, tuple[Path, str, int]]:
-    """Returns {stem_name: (midi_path, method, note_count)} for every stem that has a method."""
+    """Returns {stem_name: (midi_path, method, note_count)} for every stem that has a method.
+
+    on_progress(stage, total_stages, pct, detail) — this is always the 3rd of
+    the 3-stage pipeline (see separation.py's TOTAL_PIPELINE_STAGES); no
+    per-stem percentage is available from any of the 3 transcription methods,
+    so pct is approximated as "stems finished so far / stems to do"."""
     out_dir.mkdir(parents=True, exist_ok=True)
     todo = [s for s in stems if s in METHOD_BY_STEM]
     results = {}
     for n, stem_name in enumerate(todo, 1):
         method = METHOD_BY_STEM[stem_name]
-        on_progress(f"Transcribing {stem_name} ({n} of {len(todo)}, {method.replace('_', ' ')})…")
+        pct = round(100 * (n - 1) / len(todo)) if todo else 100
+        on_progress(3, 3, pct, f"Transcribing {stem_name} ({n} of {len(todo)}, {method.replace('_', ' ')})…")
         midi = transcribe_stem(stem_name, stems[stem_name])
         path = out_dir / f"{stem_name}.mid"
         midi.write(str(path))

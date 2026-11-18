@@ -33,6 +33,30 @@ function noteName(midiPitch) {
   return names[((midiPitch % 12) + 12) % 12] + (Math.floor(midiPitch / 12) - 1);
 }
 
+// Parses the "{stage}/{total}|{pct}|{detail}" format main.py's
+// _progress_text() packs into the progress/transcribe_progress columns.
+// Messages that don't use it (e.g. "Queued", "Starting…", "Done") come back
+// with stage: null so callers can fall back to showing them plain.
+function parseProgress(raw) {
+  if (!raw) return null;
+  const m = /^(\d+)\/(\d+)\|(\d*)\|([\s\S]*)$/.exec(raw);
+  if (!m) return { stage: null, total: null, pct: null, overallPct: null, detail: raw };
+  const stage = Number(m[1]), total = Number(m[2]);
+  const pct = m[3] === '' ? null : Number(m[3]);
+  const overallPct = Math.round((((stage - 1) + (pct || 0) / 100) / total) * 100);
+  return { stage, total, pct, overallPct, detail: m[4] };
+}
+
+// "Task 2 of 3 · 42% overall — Instrumental model (...): 68% (17/25 chunks, ...)"
+// — same per-task detail text as before, just with the pipeline position
+// and an overall-progress estimate prefixed onto it.
+function formatProgress(raw) {
+  const p = parseProgress(raw);
+  if (!p) return '';
+  if (p.stage == null) return p.detail;
+  return `Task ${p.stage} of ${p.total} · ${p.overallPct}% overall — ${p.detail}`;
+}
+
 function escapeHtml(s) {
   const div = document.createElement('div');
   div.textContent = s ?? '';

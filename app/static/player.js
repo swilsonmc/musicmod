@@ -96,7 +96,7 @@ function renderInProgress(upload) {
   playerDiv.innerHTML = `
     <div class="status-box">
       ${metaRow(upload)}
-      <p><strong>What's happening:</strong> <span id="progress-text">${escapeHtml(upload.progress || 'Waiting to start…')}</span></p>
+      <p><strong>What's happening:</strong> <span id="progress-text">${escapeHtml(upload.progress ? formatProgress(upload.progress) : 'Waiting to start…')}</span></p>
       <p>Elapsed: <span id="elapsed-text">—</span></p>
     </div>`;
 
@@ -115,7 +115,7 @@ function renderTranscribeBox(box, upload) {
     ? formatDuration(new Date(upload.transcribe_finished_at) - new Date(upload.transcribe_started_at)) : '—';
   let text, button = null;
   if (s === 'pending' || s === 'processing') {
-    text = `<strong>Transcribing:</strong> ${escapeHtml(upload.transcribe_progress || 'Queued')}`;
+    text = `<strong>Transcribing:</strong> ${escapeHtml(upload.transcribe_progress ? formatProgress(upload.transcribe_progress) : 'Queued')}`;
   } else if (s === 'done') {
     text = `<strong>Transcribed to MIDI</strong> in ${took} (${formatTime(upload.transcribe_finished_at)}).`;
     button = 'Re-transcribe';
@@ -195,6 +195,19 @@ function restartSynthIfPlaying() {
   if (anyPlaying() && synthParts().length) synth.start(songTime, anyPlaying, synthParts);
 }
 
+// Shared by the merged Play/Pause button and the spacebar shortcut, so a
+// click and a keypress always land on the same button-swap logic.
+function togglePlayPause() {
+  if (anyPlaying()) {
+    synth.stop();
+    engine.pause();
+  } else {
+    engine.play();
+    if (synthParts().length) synth.start(songTime, anyPlaying, synthParts);
+  }
+  updateTimecodes(); // flips the button label immediately, not up to 100ms later
+}
+
 // Natural end-of-song (not a manual pause/stop, which already call
 // synth.stop() themselves) needs its own hook to cut the synth off too.
 engine.onEnded = () => synth.stop();
@@ -214,6 +227,15 @@ function updateTimecodes() {
     if (t.roll) t.roll.setPlayheadFraction(duration ? now / duration : 0);
     t.wavesurfer.setTime(now); // keeps the (muted, silent) waveform cursor visually in sync
   }
+  // Runs on every tick (not just on click/spacebar), so the button stays
+  // correct no matter what changed the play state — Stop all, the song
+  // ending naturally, or anything else.
+  const playPauseBtn = document.getElementById('play-pause-all');
+  if (playPauseBtn) {
+    const playing = anyPlaying();
+    playPauseBtn.textContent = playing ? 'Pause all' : 'Play all';
+    playPauseBtn.classList.toggle('is-playing', playing);
+  }
 }
 
 // Undo targets whichever roll was edited most recently, regardless of which
@@ -224,6 +246,20 @@ document.addEventListener('keydown', (e) => {
       e.preventDefault();
       lastEditedRoll.undo();
     }
+    return;
+  }
+
+  // Spacebar play/pause, so you can keep your eye on a waveform instead of
+  // hunting for the right button — except while actually typing or while a
+  // button has focus (there, Space should do its normal job: insert a
+  // space, or activate that focused button — which fires this same toggle
+  // anyway if it's the play/pause button itself, so it's never skipped).
+  if (e.code === 'Space' || e.key === ' ') {
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON') return;
+    if (!Object.keys(tracks).length) return; // nothing loaded yet
+    e.preventDefault();
+    togglePlayPause();
   }
 });
 
@@ -240,6 +276,7 @@ function renderDone(upload) {
   summary.innerHTML = metaRow(upload, `
     <dt>Finished</dt><dd>${formatTime(upload.finished_at)}</dd>
     <dt>Took</dt><dd>${formatDuration(durationMs)}</dd>
+    <dt>Original file</dt><dd><a href="${upload.original_url}" download>Download</a></dd>
   `);
   const transcribeBox = document.createElement('div');
   transcribeBox.className = 'transcribe-box';
@@ -256,22 +293,14 @@ function renderDone(upload) {
   transport.className = 'master-transport';
   transport.innerHTML = `
     <div class="master-buttons">
-      <button id="play-all">Play all</button>
-      <button id="pause-all">Pause all</button>
+      <button id="play-pause-all">Play all</button>
       <button id="stop-all">Stop all</button>
       <span class="time-readout" id="master-time">0:00.00 / 0:00.00</span>
     </div>
     <div class="master-bar-row" id="master-bar"><div class="master-bar-fill" id="master-bar-fill"></div></div>
   `;
   playerDiv.appendChild(transport);
-  transport.querySelector('#play-all').onclick = () => {
-    engine.play();
-    if (synthParts().length) synth.start(songTime, anyPlaying, synthParts);
-  };
-  transport.querySelector('#pause-all').onclick = () => {
-    synth.stop();
-    engine.pause();
-  };
+  transport.querySelector('#play-pause-all').onclick = togglePlayPause;
   transport.querySelector('#stop-all').onclick = () => {
     synth.stop();
     engine.stop();
@@ -499,17 +528,123 @@ window.addEventListener('resize', () => {
   }, 150);
 });
 
+// Shared by the file-input form and whole-page drag-and-drop below, so
+// there's one upload code path regardless of how the file arrived. The
+// server tells us what it actually turned out to be (ffprobe, not the
+// filename) — audio goes straight into the player, video needs its audio
+// extracted first.
+async function handleFileUpload(file) {
+  const body = new FormData();
+  body.append('file', file);
+  const res = await fetch('/api/uploads', { method: 'POST', body });
+  if (!res.ok) {
+    const problem = await res.json().catch(() => ({}));
+    alert('Could not upload: ' + (problem.detail || res.statusText));
+    return;
+  }
+  const result = await res.json();
+  if (result.kind === 'video') {
+    watchVideoExtraction(result.download_id, file.name);
+  } else {
+    await refreshList(result.id);
+    await selectUpload(result.id);
+  }
+}
+
+// Mirrors downloads.js's extracted-audio -> "Separate stems" step, just
+// surfaced right here instead of sending the user to the Downloads page —
+// extraction is quick, but committing to a full separation run is a
+// deliberate second click either way, so it stays a button, not automatic.
+function watchVideoExtraction(downloadId, filename) {
+  stopTimers();
+  teardownPlayer();
+  playerDiv.innerHTML = `
+    <div class="status-box" id="video-extract-box">
+      <p><strong>${escapeHtml(filename)}</strong> is a video — extracting its audio first.</p>
+      <p id="extract-status">Starting…</p>
+    </div>`;
+  const statusEl = document.getElementById('extract-status');
+
+  const check = async () => {
+    const d = await fetch(`/api/downloads/${downloadId}`).then((r) => r.json());
+    if (d.status === 'error') {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      document.getElementById('video-extract-box').innerHTML =
+        `<p><strong>${escapeHtml(filename)}</strong></p><p class="status-error">Couldn't extract audio: ${escapeHtml(d.error || 'unknown error')}</p>`;
+      return;
+    }
+    if (d.status !== 'done') {
+      statusEl.textContent = d.progress ? formatProgress(d.progress) : 'Extracting…';
+      return;
+    }
+    clearInterval(pollTimer);
+    pollTimer = null;
+    const box = document.getElementById('video-extract-box');
+    box.innerHTML = `<p><strong>${escapeHtml(filename)}</strong> — audio extracted (${formatBytes(d.file_size_bytes)}).</p>`;
+    const btn = document.createElement('button');
+    btn.textContent = 'Transcribe now';
+    btn.onclick = async () => {
+      btn.disabled = true;
+      btn.textContent = 'Starting…';
+      const res = await fetch(`/api/downloads/${downloadId}/separate`, { method: 'POST' });
+      if (!res.ok) {
+        const problem = await res.json().catch(() => ({}));
+        alert('Could not start separation: ' + (problem.detail || res.statusText));
+        btn.disabled = false;
+        btn.textContent = 'Transcribe now';
+        return;
+      }
+      const { upload_id } = await res.json();
+      await refreshList(upload_id);
+      await selectUpload(upload_id);
+    };
+    box.appendChild(btn);
+  };
+  check();
+  pollTimer = setInterval(check, 2000);
+}
+
 form.onsubmit = async (e) => {
   e.preventDefault();
   const file = fileInput.files[0];
   if (!file) return;
-  const body = new FormData();
-  body.append('file', file);
-  const res = await fetch('/api/uploads', { method: 'POST', body });
-  const { id } = await res.json();
   fileInput.value = '';
-  await selectUpload(id);
+  await handleFileUpload(file);
 };
+
+// Whole-page drag-and-drop. dragenter/dragleave fire on every child element
+// crossed while dragging, not just once on the page as a whole — a depth
+// counter (instead of a bare boolean) is what keeps the overlay from
+// flickering on and off as the drag passes over child elements.
+const dropOverlay = document.getElementById('drop-overlay');
+let dragDepth = 0;
+
+function dragHasFiles(e) {
+  return e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+}
+
+window.addEventListener('dragenter', (e) => {
+  if (!dragHasFiles(e)) return;
+  dragDepth++;
+  dropOverlay.classList.add('active');
+});
+window.addEventListener('dragleave', () => {
+  dragDepth = Math.max(0, dragDepth - 1);
+  if (dragDepth === 0) dropOverlay.classList.remove('active');
+});
+window.addEventListener('dragover', (e) => {
+  // Without preventDefault() here, the browser's default is to refuse the
+  // drop and navigate to the file instead.
+  if (dragHasFiles(e)) e.preventDefault();
+});
+window.addEventListener('drop', (e) => {
+  if (!dragHasFiles(e)) return;
+  e.preventDefault();
+  dragDepth = 0;
+  dropOverlay.classList.remove('active');
+  if (e.dataTransfer.files.length) handleFileUpload(e.dataTransfer.files[0]);
+});
 
 const initialId = new URLSearchParams(location.search).get('upload');
 if (initialId) {

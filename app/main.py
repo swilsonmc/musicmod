@@ -11,14 +11,12 @@ from fastapi.staticfiles import StaticFiles
 from . import config, db
 from .separation import separate_upload
 from .transcription import GM_PROGRAM, METHOD_BY_STEM, notes_json, save_notes, transcribe_stems
-from .youtube import download_video, ensure_ytdlp_updated, extract_audio, fetch_metadata
+from .youtube import download_video, ensure_ytdlp_updated, extract_audio, fetch_metadata, probe_media
 
 app = FastAPI(title="musicmod")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-
-ALLOWED_SUFFIXES = {".wav", ".flac", ".mp3", ".ogg", ".m4a"}
 
 UPLOAD_COLUMNS = (
     "id, original_filename, status, error, file_size_bytes, progress, "
@@ -74,6 +72,14 @@ def downloads_page() -> HTMLResponse:
     return HTMLResponse((STATIC_DIR / "downloads.html").read_text())
 
 
+def _progress_text(stage: int, total: int, pct: int | None, detail: str) -> str:
+    """Packs (stage, total, pct, detail) into one string for the `progress`/
+    `transcribe_progress` VARCHAR columns, in a format the frontend's
+    formatProgress() can parse back out — see format.js. pct is left blank
+    (not "None"/"null") when not yet known, so the regex stays simple."""
+    return f"{stage}/{total}|{'' if pct is None else pct}|{detail}"
+
+
 def _set(upload_id: int, **fields) -> None:
     conn = db.get_connection()
     try:
@@ -93,7 +99,10 @@ def _run_separation(upload_id: int, stored_dir: str) -> None:
     with _cpu_lock:
         _set(upload_id, status="processing", started_at=datetime.now(), progress="Starting…")
         try:
-            stems = separate_upload(input_path, output_dir, lambda text: _set(upload_id, progress=text))
+            stems = separate_upload(
+                input_path, output_dir,
+                lambda stage, total, pct, detail: _set(upload_id, progress=_progress_text(stage, total, pct, detail)),
+            )
             conn = db.get_connection()
             try:
                 with conn.cursor() as cur:
@@ -128,7 +137,10 @@ def _run_transcription(upload_id: int, stored_dir: str) -> None:
                 for row in db.fetch_all("SELECT stem_name, file_path FROM stems WHERE upload_id = %s", (upload_id,))
             }
             results = transcribe_stems(
-                stems, config.MIDI_DIR / stored_dir, lambda text: _set(upload_id, transcribe_progress=text)
+                stems, config.MIDI_DIR / stored_dir,
+                lambda stage, total, pct, detail: _set(
+                    upload_id, transcribe_progress=_progress_text(stage, total, pct, detail)
+                ),
             )
             db.execute("DELETE FROM midi_tracks WHERE upload_id = %s", (upload_id,))
             for stem_name, (path, method, note_count) in results.items():
@@ -173,23 +185,37 @@ def _enqueue_upload(original_filename: str, source_path: Path, background_tasks:
 
 @app.post("/api/uploads")
 async def create_upload(file: UploadFile, background_tasks: BackgroundTasks):
-    suffix = Path(file.filename).suffix.lower()
-    if suffix not in ALLOWED_SUFFIXES:
-        raise HTTPException(400, f"Unsupported file type {suffix!r}")
-
-    # _enqueue_upload() expects a file already on disk (it copies rather than
-    # streams, so a download's extracted audio can be reused byte-for-byte);
-    # a fresh multipart upload needs writing out first.
+    # _enqueue_upload() (and _enqueue_video_extraction() below) expect a file
+    # already on disk (so a download's extracted audio can be reused
+    # byte-for-byte without a second copy); a fresh multipart upload needs
+    # writing out first.
+    suffix = Path(file.filename).suffix.lower() or ".bin"
     tmp_dir = config.UPLOADS_DIR / f"tmp-{uuid.uuid4()}"
     tmp_dir.mkdir(parents=True)
     tmp_path = tmp_dir / f"incoming{suffix}"
     try:
         with tmp_path.open("wb") as out:
             shutil.copyfileobj(file.file, out)
-        upload_id = _enqueue_upload(file.filename, tmp_path, background_tasks)
+
+        # ffprobe actually opens the file rather than trusting the extension
+        # the browser/OS reported — catches a corrupted file or a document
+        # someone dragged in by mistake before it ever reaches a model.
+        media = probe_media(tmp_path)
+        if media is None:
+            raise HTTPException(400, "That doesn't look like a usable audio or video file.")
+
+        if media["kind"] == "audio":
+            upload_id = _enqueue_upload(file.filename, tmp_path, background_tasks)
+            return {"kind": "audio", "id": upload_id, "status": "pending"}
+
+        # Video: extract its audio first and let the user confirm before
+        # committing to a full separation run — reuses the `downloads`
+        # table's existing extracted-audio -> "Separate stems" flow (see
+        # downloads.js) instead of a second state machine for this case.
+        download_id = _enqueue_video_extraction(file.filename, tmp_path, media["duration_seconds"], background_tasks)
+        return {"kind": "video", "download_id": download_id, "status": "pending"}
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
-    return {"id": upload_id, "status": "pending"}
 
 
 @app.get("/api/uploads")
@@ -226,6 +252,7 @@ def get_upload(upload_id: int):
             }
             # Stems no transcriber handles yet (drums), so the UI can say so instead of looking broken.
             upload["untranscribable"] = [s for s in upload["stems"] if s not in METHOD_BY_STEM]
+            upload["original_url"] = f"/api/uploads/{upload_id}/original"
             return upload
     finally:
         conn.close()
@@ -297,6 +324,21 @@ def get_stem(upload_id: int, stem_name: str):
     return FileResponse(config.STEMS_DIR / row["file_path"], media_type="audio/wav")
 
 
+@app.get("/api/uploads/{upload_id}/original")
+def get_original(upload_id: int):
+    row = db.fetch_one("SELECT stored_dir, original_filename FROM uploads WHERE id = %s", (upload_id,))
+    if row is None:
+        raise HTTPException(404, "No such upload")
+    upload_dir = config.UPLOADS_DIR / row["stored_dir"]
+    # Stored as "original<ext>" by _enqueue_upload() — same iterdir() pattern
+    # _run_separation() already uses to find it without tracking the suffix separately.
+    try:
+        path = next(upload_dir.iterdir())
+    except (FileNotFoundError, StopIteration):
+        raise HTTPException(404, "Original file is missing")
+    return FileResponse(path, filename=row["original_filename"])
+
+
 DOWNLOAD_COLUMNS = (
     "id, url, title, status, progress, error, file_size_bytes, duration_seconds, "
     "upload_id, created_at, started_at, finished_at"
@@ -341,6 +383,54 @@ def _run_download(download_id: int, url: str, stored_dir: str) -> None:
         )
     except Exception as exc:  # bad URL, region/age-restricted video, yt-dlp/ffmpeg failure — record, don't crash the server
         _set_download(download_id, status="error", finished_at=datetime.now(), error=str(exc)[:1000], progress=None)
+
+
+def _run_extract_only(download_id: int, video_path: Path, duration_seconds: float | None) -> None:
+    """Same shape as _run_download() but for a video the user already has
+    locally (dropped onto the page) — no yt-dlp step, straight to ffmpeg."""
+    _set_download(download_id, status="extracting", started_at=datetime.now(), progress="Extracting audio…")
+    try:
+        audio_path = video_path.parent / "audio.wav"
+        extract_audio(
+            video_path, audio_path, duration_seconds,
+            lambda text: _set_download(download_id, progress=text),
+        )
+        _set_download(
+            download_id, status="done", finished_at=datetime.now(), progress="Done",
+            file_size_bytes=audio_path.stat().st_size,
+        )
+    except Exception as exc:  # corrupt/unsupported video stream, ffmpeg failure — record, don't crash the server
+        _set_download(download_id, status="error", finished_at=datetime.now(), error=str(exc)[:1000], progress=None)
+
+
+def _enqueue_video_extraction(
+    original_filename: str, source_path: Path, duration_seconds: float | None, background_tasks: BackgroundTasks
+) -> int:
+    """Registers a dropped video file as a `downloads` row (same table/flow
+    YouTube downloads use once their audio is extracted) and queues
+    extraction. Separation isn't started automatically — the "Separate
+    stems"/"Transcribe now" step stays a deliberate second click, same as
+    for a YouTube download, since extraction is quick but separation is not."""
+    stored_dir = str(uuid.uuid4())
+    dest_dir = config.DOWNLOADS_DIR / stored_dir
+    dest_dir.mkdir(parents=True)
+    dest_path = dest_dir / f"video{source_path.suffix.lower()}"
+    shutil.copyfile(source_path, dest_path)
+
+    conn = db.get_connection()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO downloads (url, title, stored_dir, status, duration_seconds) "
+                "VALUES (%s, %s, %s, 'pending', %s)",
+                (f"(dropped file) {original_filename}", original_filename, stored_dir, duration_seconds),
+            )
+            download_id = cur.lastrowid
+    finally:
+        conn.close()
+
+    background_tasks.add_task(_run_extract_only, download_id, dest_path, duration_seconds)
+    return download_id
 
 
 @app.post("/api/downloads")

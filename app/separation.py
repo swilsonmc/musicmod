@@ -34,8 +34,9 @@ _PROGRESS_RE = re.compile(r"(\d+)%\|.*?\|\s*(\d+)/(\d+)\s*\[([^\]]+)\]")
 
 
 def run_model_with_progress(
-    mixdown: Path, model: str, output_dir: Path, on_progress: Callable[[str], None]
+    mixdown: Path, model: str, output_dir: Path, on_progress: Callable[[int, str], None]
 ) -> dict[str, str]:
+    """on_progress(pct, detail) — pct is tqdm's own 0-100 reading."""
     model_dir = output_dir / model
     model_dir.mkdir(parents=True, exist_ok=True)
 
@@ -64,7 +65,7 @@ def run_model_with_progress(
         now = time.monotonic()
         if now - last_sent > 1.0:
             pct, done, total, timing = match.groups()
-            on_progress(f"{pct}% ({done}/{total} chunks, {timing})")
+            on_progress(int(pct), f"{done}/{total} chunks, {timing}")
             last_sent = now
     process.wait()
 
@@ -79,21 +80,32 @@ def run_model_with_progress(
     return _separate.canonicalize_outputs(model_dir)
 
 
+# The whole pipeline a fresh upload goes through, including the transcription
+# that automatically follows separation (see main.py's _run_separation) — a
+# fixed 3 stages the progress text always counts against, even though this
+# function itself only drives the first two.
+TOTAL_PIPELINE_STAGES = 3
+
+
 def separate_upload(
-    input_path: Path, output_dir: Path, on_progress: Callable[[str], None] = lambda s: None
+    input_path: Path, output_dir: Path,
+    on_progress: Callable[[int, int, int | None, str], None] = lambda stage, total, pct, detail: None,
 ) -> dict[str, Path]:
     """Runs the vocal specialist and the 4-stem model, keeping only the stems
-    phase 1's evidence says each one is actually best at."""
-    on_progress(f"Loading vocal model ({config.VOCAL_MODEL})…")
+    phase 1's evidence says each one is actually best at.
+
+    on_progress(stage, total_stages, pct, detail) — pct is None while a
+    model is still loading (before tqdm has anything to report)."""
+    on_progress(1, TOTAL_PIPELINE_STAGES, None, f"Loading vocal model ({config.VOCAL_MODEL})…")
     vocal_manifest = run_model_with_progress(
         input_path, config.VOCAL_MODEL, output_dir,
-        lambda p: on_progress(f"Vocal model ({config.VOCAL_MODEL}): {p}"),
+        lambda pct, detail: on_progress(1, TOTAL_PIPELINE_STAGES, pct, f"Vocal model ({config.VOCAL_MODEL}): {detail}"),
     )
 
-    on_progress(f"Loading instrumental model ({config.INSTRUMENTAL_MODEL})…")
+    on_progress(2, TOTAL_PIPELINE_STAGES, None, f"Loading instrumental model ({config.INSTRUMENTAL_MODEL})…")
     instrumental_manifest = run_model_with_progress(
         input_path, config.INSTRUMENTAL_MODEL, output_dir,
-        lambda p: on_progress(f"Instrumental model ({config.INSTRUMENTAL_MODEL}): {p}"),
+        lambda pct, detail: on_progress(2, TOTAL_PIPELINE_STAGES, pct, f"Instrumental model ({config.INSTRUMENTAL_MODEL}): {detail}"),
     )
 
     stems: dict[str, Path] = {}
