@@ -27,6 +27,15 @@
   .track-main { flex: 1; min-width: 0; }
   .track-side { display: flex; flex-direction: column; gap: 2px; flex: none; }
   .track-side button { font-size: 0.75rem; padding: 2px 6px; }
+  /* Save/Revert have nothing to do until something's actually been edited,
+     and the zoom buttons stop doing anything once a roll hits either end of
+     its zoom range — grey both out there instead of leaving them clickable
+     but inert. Save/Revert additionally highlight once there IS an unsaved
+     edit, so a dirty roll is obvious without reading its caption text. */
+  .track-side button:disabled { opacity: 0.4; cursor: default; }
+  .track-side button.highlight {
+    background: #e3a21a; border-color: #b17f12; color: #1a1a1a; font-weight: 700;
+  }
   .track-controls { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.25rem; flex-wrap: wrap; }
   .track-controls .stem-label { width: 70px; font-weight: 600; text-transform: capitalize; }
   .track-time { font-variant-numeric: tabular-nums; color: #555; font-size: 0.85rem; min-width: 4.5em; }

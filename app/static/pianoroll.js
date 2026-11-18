@@ -412,6 +412,9 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
     redraw: applyZoom,
     zoomIn() { rezoom(1.6); },
     zoomOut() { rezoom(1 / 1.6); },
+    // rezoom() always clamps to exactly 1 or exactly MAX_ZOOM at the
+    // limits, so these comparisons never need an epsilon.
+    zoomState() { return { atMin: zoom <= 1, atMax: zoom >= MAX_ZOOM }; },
     setPlayheadFraction(f) {
       lastPlayheadFrac = Math.max(0, Math.min(1, f));
       playhead.style.left = `${lastPlayheadFrac * 100}%`;

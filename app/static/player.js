@@ -389,14 +389,17 @@ function renderDone(upload) {
 
       const saveBtn = document.createElement('button');
       saveBtn.textContent = 'Save';
+      saveBtn.disabled = true; // nothing to save until notes are loaded and edited
       const revertBtn = document.createElement('button');
       revertBtn.textContent = 'Revert';
+      revertBtn.disabled = true;
       const zoomInBtn = document.createElement('button');
       zoomInBtn.textContent = '🔍+';
       zoomInBtn.title = 'Zoom in on this piano roll';
       const zoomOutBtn = document.createElement('button');
       zoomOutBtn.textContent = '🔍−';
       zoomOutBtn.title = 'Zoom out on this piano roll';
+      zoomOutBtn.disabled = true; // starts at zoom=1, already fully zoomed out
       side.append(saveBtn, revertBtn, zoomInBtn, zoomOutBtn);
 
       const roll = createPianoRoll(rollContainer, {
@@ -415,6 +418,19 @@ function renderDone(upload) {
         const base = describeNotes(stemName, t.notes || [], midi.method);
         caption.textContent = t.dirty ? `${base} · unsaved changes (Save to keep, Revert to discard)` : `${base} · saved`;
         caption.classList.toggle('dirty', t.dirty);
+        // Grey out Save/Revert with nothing to act on; highlight them the
+        // moment there's an edit sitting unsaved, so it's obvious at a
+        // glance whether this stem's roll has pending changes.
+        saveBtn.disabled = !t.dirty;
+        revertBtn.disabled = !t.dirty;
+        saveBtn.classList.toggle('highlight', t.dirty);
+        revertBtn.classList.toggle('highlight', t.dirty);
+      }
+
+      function updateZoomButtons() {
+        const { atMin, atMax } = roll.zoomState();
+        zoomOutBtn.disabled = atMin;
+        zoomInBtn.disabled = atMax;
       }
 
       saveBtn.onclick = async () => {
@@ -440,8 +456,8 @@ function renderDone(upload) {
         t.dirty = false;
         updateCaption();
       };
-      zoomInBtn.onclick = () => roll.zoomIn();
-      zoomOutBtn.onclick = () => roll.zoomOut();
+      zoomInBtn.onclick = () => { roll.zoomIn(); updateZoomButtons(); };
+      zoomOutBtn.onclick = () => { roll.zoomOut(); updateZoomButtons(); };
 
       Promise.all([
         fetch(midi.notes_url).then((r) => r.json()),
@@ -452,6 +468,7 @@ function renderDone(upload) {
         t.lastSaved = notes.map((n) => n.slice());
         roll.setNotes(notes);
         updateCaption();
+        updateZoomButtons();
       });
 
       synthBtn.onclick = () => {
