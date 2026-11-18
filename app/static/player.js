@@ -369,7 +369,7 @@ function renderDone(upload) {
     wavesurfer.setVolume(0);
     const t = tracks[stemName] = {
       wavesurfer, muted: false, soloed: false, volume: 1, notes: null, lastSaved: null, dirty: false,
-      synthOn: false, isDrum, roll: null, timeEl,
+      synthOn: false, isDrum, roll: null, timeEl, trackEl: track, rollGrid: null,
     };
     const engineLoad = engine.loadStem(stemName, url);
     engineLoads.push(engineLoad);
@@ -413,6 +413,7 @@ function renderDone(upload) {
         },
       });
       t.roll = roll;
+      t.rollGrid = rollContainer.querySelector('.roll-grid');
 
       function updateCaption() {
         const base = describeNotes(stemName, t.notes || [], midi.method);
@@ -484,6 +485,7 @@ function renderDone(upload) {
     }
 
     playerDiv.appendChild(track);
+    if (t.rollGrid) alignRollKeys(t);
 
     muteBtn.onclick = () => {
       t.muted = !t.muted;
@@ -527,6 +529,28 @@ function alignMasterBar() {
   bar.style.marginRight = `${bar.parentElement.getBoundingClientRect().right - wfRect.right}px`;
 }
 
+// Same idea as alignMasterBar() above, applied to a stem's piano roll: the
+// key-label column reuses the Save/Revert/zoom button column's actual
+// rendered width (plus the row's own gap) instead of a fixed guess, and the
+// whole roll is pulled left by exactly that much and widened to match — so
+// the roll's note content still starts at the same x as the waveform above
+// it (lining up every playhead), while the key labels end up sitting under
+// those buttons instead of needing a second reserved gutter of their own.
+function alignRollKeys(t) {
+  const side = t.trackEl.querySelector('.track-side');
+  const waveform = t.trackEl.querySelector('.track-waveform');
+  if (!side || !waveform || !t.rollGrid) return;
+  // Measuring the real gap between the two rendered boxes (rather than
+  // parsing .track's CSS `gap` and adding it to .track-side's own width)
+  // avoids a stray 1px from subpixel flex-layout rounding — same reasoning
+  // as alignMasterBar() above, which measures rendered rects instead of
+  // re-deriving a position from CSS.
+  const keysWidth = waveform.getBoundingClientRect().left - side.getBoundingClientRect().left;
+  t.rollGrid.style.marginLeft = `-${keysWidth}px`;
+  t.rollGrid.style.width = `calc(100% + ${keysWidth}px)`;
+  t.rollGrid.style.setProperty('--keys-width', `${keysWidth}px`);
+}
+
 function describeNotes(stemName, notes, method) {
   const label = METHOD_LABEL[method] || method;
   if (stemName === 'drums') return `${notes.length} hits · ${label}`;
@@ -540,7 +564,11 @@ let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    Object.values(tracks).forEach((t) => t.roll && t.roll.redraw());
+    Object.values(tracks).forEach((t) => {
+      if (!t.roll) return;
+      alignRollKeys(t); // button column's width can reflow at a new viewport width
+      t.roll.redraw();
+    });
     alignMasterBar();
   }, 150);
 });

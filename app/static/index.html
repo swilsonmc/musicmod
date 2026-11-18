@@ -74,39 +74,35 @@
   .master-bar-row { height: 10px; background: #eee; border-radius: 5px; cursor: pointer; overflow: hidden; }
   .master-bar-fill { height: 100%; width: 0; background: #3c46be; }
 
-  /* Time ruler across the top + the scrollable note canvas below — a single
-     column now, deliberately: the note-name sidebar used to reserve its own
-     42px grid column to the left of the roll, which pushed the roll's
-     time-zero 42px to the right of the waveform's/master bar's time-zero,
-     so the piano-roll playhead never lined up with the ones above it. The
-     ruler and viewport now both start flush at the track's left edge, same
-     as the waveform, so all the playheads share one x-axis. */
+  /* A 2-column grid again: key labels on the left, ruler+viewport on the
+     right — but the left column's width (--keys-width) is now set by JS
+     (alignRollKeys() in player.js) to exactly the Save/Revert/zoom button
+     column's own rendered width, the same idea as alignMasterBar() already
+     uses for the master seek bar. The whole grid is then pulled left and
+     widened by that same amount (negative margin-left + a matching width
+     increase), which moves ONLY the left column out from under .track-main
+     into the gap below .track-side — the right column's width is
+     unaffected by that shift, so the ruler/viewport (and so the note
+     content and playhead) stay exactly where they were: flush with the
+     waveform above, same x-axis as everything else on the page. */
   .roll-grid {
-    position: relative;
-    margin-top: 4px; background: #fafaff; border: 1px solid #eee; border-radius: 4px; overflow: hidden;
+    /* Deliberately no border here (only background/radius/clip): a border
+       sits outside the content box, which would offset where the grid's
+       columns actually start from where JS measured .track-side's edge to
+       be, reintroducing a 1px misalignment. The ruler/keys/viewport cells
+       below carry their own borders instead. */
+    display: grid; grid-template-columns: var(--keys-width, 42px) 1fr; grid-template-rows: 18px 1fr;
+    margin-top: 4px; background: #fafaff; border-radius: 4px; overflow: hidden;
   }
-  .roll-ruler-wrap { position: relative; height: 18px; overflow: hidden; background: #f3f3fb; border-bottom: 1px solid #e3e3f0; }
+  .roll-corner { grid-column: 1; grid-row: 1; background: #f3f3fb; border-right: 1px solid #e3e3f0; border-bottom: 1px solid #e3e3f0; }
+  .roll-ruler-wrap { grid-column: 2; grid-row: 1; position: relative; overflow: hidden; background: #f3f3fb; border-bottom: 1px solid #e3e3f0; }
   .roll-ruler-wrap canvas { position: absolute; top: 0; left: 0; display: block; }
-  .roll { position: relative; height: 80px; overflow: auto; }
+  .roll-keys-wrap { grid-column: 1; grid-row: 2; position: relative; overflow: hidden; background: #f3f3fb; border-right: 1px solid #e3e3f0; }
+  .roll-keys-wrap canvas { position: absolute; top: 0; left: 0; display: block; }
+  .roll { grid-column: 2; grid-row: 2; position: relative; height: 80px; overflow: auto; }
   .roll-inner { position: relative; min-width: 100%; min-height: 100%; }
   .roll canvas { display: block; width: 100%; height: 100%; }
   .roll .playhead { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: #c0392b; pointer-events: none; z-index: 2; }
-
-  /* The note-name column and ruler corner float ON TOP of the roll instead
-     of taking layout space, so they don't shift the time axis — see above.
-     pointer-events: none lets clicks pass straight through to the real note
-     canvas underneath, so adding/editing notes near time zero still works. */
-  .roll-corner {
-    position: absolute; top: 0; left: 0; width: 42px; height: 18px;
-    background: #f3f3fb; border-right: 1px solid #e3e3f0; border-bottom: 1px solid #e3e3f0;
-    pointer-events: none; z-index: 3;
-  }
-  .roll-keys-wrap {
-    position: absolute; top: 18px; left: 0; bottom: 0; width: 42px; overflow: hidden;
-    background: rgba(243, 243, 251, 0.88); border-right: 1px solid #e3e3f0;
-    pointer-events: none; z-index: 3;
-  }
-  .roll-keys-wrap canvas { position: absolute; top: 0; left: 0; display: block; }
   .caption { font-size: 0.8rem; color: #666; margin-top: 2px; }
   .caption.hint { color: #999; font-style: italic; }
   .caption.dirty { color: #946200; font-weight: 600; }
