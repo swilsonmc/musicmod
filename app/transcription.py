@@ -17,14 +17,24 @@ import numpy as np
 import pretty_midi
 from scipy.signal import medfilt
 
-METHOD_BY_STEM = {"vocals": "pyin", "bass": "pyin", "other": "basic_pitch", "drums": "onset_classify"}
+METHOD_BY_STEM = {
+    "vocals": "pyin", "bass": "pyin", "other": "basic_pitch", "drums": "onset_classify",
+    # guitar/piano only exist as real stems with a 6-stem instrumental model
+    # (bs_roformer_sw, config.py) — Basic Pitch is instrument-agnostic (just
+    # audio -> notes, already used for "other"), so reusing it here is a
+    # real transcription, not a placeholder, and needed no new code.
+    "guitar": "basic_pitch", "piano": "basic_pitch",
+}
 
 # Search range for the single-line tracker; narrower is faster and avoids octave errors.
 PYIN_RANGES = {"bass": ("E1", "G4"), "vocals": ("C2", "C6")}
 
 # General MIDI programs, so a downloaded .mid sounds roughly right in other software.
 # Drums ignore this — is_drum=True selects the GM percussion map by note number instead.
-GM_PROGRAM = {"vocals": 53, "bass": 33, "other": 0, "drums": 0}  # Voice Oohs, Electric Bass (finger), Acoustic Grand Piano
+GM_PROGRAM = {
+    "vocals": 53, "bass": 33, "other": 0, "drums": 0,  # Voice Oohs, Electric Bass (finger), Acoustic Grand Piano
+    "guitar": 25, "piano": 0,  # Acoustic Guitar (steel), Acoustic Grand Piano
+}
 
 PYIN_SR = 22050
 PYIN_HOP = 256
