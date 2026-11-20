@@ -1717,3 +1717,55 @@ attempted — two tiers of real difference:
 
 Not scheduled; flagging as scoped (not hand-waved) for whenever it's
 wanted.
+
+## Cloud session: label stagger fix, real drum samples, bs_roformer_sw wired in (2026-11-20, same day)
+
+Follow-up to the UI round 3 entry above, same session:
+
+- Piano-roll key labels: the gap-based stagger heuristic from UI round 3
+  didn't match what was actually wanted once seen live. Replaced with the
+  literal spec: at zoom=1 (fully zoomed out) every label cycles through 3
+  horizontal positions in sequence regardless of measured gap; any zoom-in
+  at all goes back to flush left, unconditionally.
+- Drums: a drawn note's Synth preview now plays a real ~0.25s clip cropped
+  from this stem's own loudest already-detected kick/snare/closed-hat hit
+  (`extract_sample_clip()` in `drum_transcription.py`, new
+  `GET /api/uploads/{id}/drum-sample/{pitch}`) instead of always
+  synthesizing an approximation. Falls back to the synth voice per-pitch
+  for any drum type this stem genuinely has no hit of.
+- **`INSTRUMENTAL_MODEL` swapped to `bs_roformer_sw` in the live app**,
+  not just the shootout harness (see the 2026-10-31/11-01 entries above
+  for the measured case this is based on). `app/separation.py` gained
+  `run_external_model_with_progress()` since this model runs through its
+  own CLI (`bs-roformer-infer`), not `audio-separator` — mirrors
+  stem-shootout's `run_external_model()`/`label_bs_roformer_outputs()`.
+  Its progress reporting is a rolling ETA, not a percentage (confirmed
+  from its own source). `separate_upload()` also now asks for
+  guitar/piano, not just drums/bass/other — a 4-stem model never produced
+  them so nobody noticed the omission until swapping to a 6-stem one.
+  Both transcribe via Basic Pitch (already used for "other", instrument-
+  agnostic, no new code needed).
+
+**Not done — needs the owner's own machine**: `bs-roformer-infer` only
+exists today in a separate research venv
+(`/var/www/projects/musicmod/tools/bsr_venv`) the shootout harness reaches
+by hand-prepending `PATH`. The production systemd service's own venv
+doesn't have it on `PATH` at all, so this swap won't actually take effect
+on a real upload until that's installed somewhere the service can reach —
+either into the main `musicmod/venv` directly, or by adding `bsr_venv/bin`
+to the service's own `PATH`. Flagged to the owner as the one step this
+cloud session couldn't do itself (no machine attached this session; also
+exactly the kind of CPU-heavy, multi-GB install the owner asked to
+approve explicitly before anything runs on their own hardware).
+
+Verified without running the actual heavy tool (same reasoning as always
+in this file: measure, don't guess) — a synthetic drum stem + MIDI with
+two kicks of different velocity confirms `extract_sample_clip()` picks
+the louder one; a mocked `subprocess.Popen` reproducing bs-roformer-
+infer's real stdout shape (`\r`-rewritten ETA lines, confirmed from its
+source, not guessed) confirms the parsing/rename/canonicalize chain runs
+correctly end to end; mocking both `run_*_with_progress` functions
+confirms `separate_upload()` dispatches each model through the right path
+and assembles guitar/piano into its stems dict. Full frontend wiring (the
+decoded-AudioBuffer fetch/fallback, and the stagger fix) verified against
+the real JS via the now-usual stub-server Playwright harness.
