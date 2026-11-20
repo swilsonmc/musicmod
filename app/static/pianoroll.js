@@ -39,7 +39,7 @@ function shortTime(t, step) {
   return step < 1 ? `${m}:${s.toFixed(1).padStart(4, '0')}` : `${m}:${Math.round(s).toString().padStart(2, '0')}`;
 }
 
-function createPianoRoll(container, { getDuration, isDrum, onChange }) {
+function createPianoRoll(container, { getDuration, isDrum, onChange, getDrumSample }) {
   container.innerHTML = '';
 
   // A small grid, not just the scrollable canvas: a corner spacer, a time
@@ -274,23 +274,29 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
     // that's the whole point (a C printed just because it's an octave
     // anchor used to be the only thing visible even when the real notes
     // sat on D/F# rows next to it). Everything else only labels once
-    // zoomed in enough for rows to have room, in plain weight. Rows packed
-    // closer together than a label's own line height stagger sideways
-    // instead of stacking illegibly, using the width this column now has
-    // (same as the Save/Revert/zoom buttons) instead of the old fixed 42px.
+    // zoomed in enough for rows to have room, in plain weight.
+    //
+    // At zoom 1 (fully zoomed out) rows are packed far closer together
+    // than a label's own line height, so every label drawn cycles through
+    // 3 horizontal positions in sequence — not just the ones that'd
+    // literally overlap, a plain top-to-bottom cycle, same as the user
+    // asked for — using the width this column now has (same as the
+    // Save/Revert/zoom buttons) instead of the old fixed 42px. The moment
+    // you zoom in at all, every label goes back to flush left: at that
+    // point rows already have their own room, so staggering would just
+    // make them harder to scan for no reason.
     ctx.textBaseline = 'middle';
     const occupied = new Set(notes.map((n) => n[0]));
-    const LABEL_LINE_HEIGHT = 10;
     const STAGGER_STEP = 20;
-    const maxStagger = Math.max(0, Math.floor((w - 24) / STAGGER_STEP));
-    let lastLabelY = -Infinity;
-    let stagger = 0;
+    const maxPositions = Math.max(1, Math.min(3, Math.floor((w - 24) / STAGGER_STEP) + 1));
+    const staggering = zoom <= 1 && maxPositions > 1;
+    let i = 0;
     for (let p = hi; p >= lo; p--) {
       const isOccupied = occupied.has(p);
       if (!isOccupied && rowH < 13) continue;
       const yCenter = (hi - p) * rowH + rowH / 2;
-      stagger = yCenter - lastLabelY < LABEL_LINE_HEIGHT ? Math.min(stagger + 1, maxStagger) : 0;
-      lastLabelY = yCenter;
+      const stagger = staggering ? i % maxPositions : 0;
+      i++;
       ctx.font = isOccupied ? 'bold 9px system-ui, sans-serif' : '9px system-ui, sans-serif';
       ctx.fillStyle = isOccupied ? '#1a1a2e' : '#999';
       ctx.fillText(noteName(p), 3 + stagger * STAGGER_STEP, yCenter);
@@ -443,7 +449,7 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
 
   function previewNote(note) {
     const [pitch, , , velocity] = note;
-    synth.previewOne(pitch, velocity, isDrum);
+    synth.previewOne(pitch, velocity, isDrum, getDrumSample && getDrumSample(pitch));
   }
 
   return {
@@ -491,7 +497,11 @@ const synth = {
     return this.ctx;
   },
 
-  // getTime: current song position in seconds; getParts: [{notes, volume, isDrum}] for stems with Synth on.
+  // getTime: current song position in seconds; getParts: [{notes, volume,
+  // isDrum, getDrumSample}] for stems with Synth on. getDrumSample(pitch),
+  // when given, returns a real AudioBuffer sampled from this stem's own
+  // loudest hit of that GM drum pitch (see drumVoice() below) instead of
+  // always using the synthesized approximation.
   start(getTime, isPlaying, getParts) {
     this.stop();
     this.ensureContext();
@@ -501,10 +511,10 @@ const synth = {
       if (!isPlaying()) return;
       const now = getTime();
       const horizon = now + LOOKAHEAD;
-      for (const { notes, volume, isDrum } of getParts()) {
+      for (const { notes, volume, isDrum, getDrumSample } of getParts()) {
         for (const [p, s, e, v] of notes) {
           if (s >= this.scheduledUpTo && s < horizon) {
-            if (isDrum) this.drumVoice(p, s - now, v, volume);
+            if (isDrum) this.drumVoice(p, s - now, v, volume, getDrumSample && getDrumSample(p));
             else this.voice(p, s - now, e - s, v, volume);
           }
         }
@@ -517,9 +527,9 @@ const synth = {
 
   // A one-shot sound for a note you just added/moved/resized, independent of
   // the transport — so editing is audible even when nothing is playing.
-  previewOne(pitch, velocity, isDrum) {
+  previewOne(pitch, velocity, isDrum, drumSample) {
     this.ensureContext();
-    if (isDrum) this.drumVoice(pitch, 0, velocity, 1);
+    if (isDrum) this.drumVoice(pitch, 0, velocity, 1, drumSample);
     else this.voice(pitch, 0, 0.35, velocity, 1);
   },
 
@@ -541,10 +551,25 @@ const synth = {
   },
 
   // Playing GM drum note numbers as tuned pitches would sound like random
-  // beeps, not drums — synthesize a short noise/thump per hit instead.
-  drumVoice(pitch, delay, velocity, volume) {
+  // beeps, not drums — synthesize a short noise/thump per hit instead,
+  // unless a real sample of this stem's own hit of that pitch is given
+  // (player.js fetches these via /api/uploads/{id}/drum-sample/{pitch} once
+  // per drum stem): then just play that back, since "drum pitch" is which
+  // drum it is, not a tone to retune.
+  drumVoice(pitch, delay, velocity, volume, sampleBuffer) {
     const when = this.ctx.currentTime + Math.max(0, delay);
     const peak = 0.3 * (velocity / 127) * volume;
+
+    if (sampleBuffer) {
+      const src = this.ctx.createBufferSource();
+      src.buffer = sampleBuffer;
+      const gain = this.ctx.createGain();
+      gain.gain.value = Math.min(1, velocity / 127) * volume;
+      src.connect(gain).connect(this.ctx.destination);
+      src.start(when);
+      this.track(src);
+      return;
+    }
 
     if (pitch === 36) { // kick: pitch-dropping sine thump
       const osc = this.ctx.createOscillator();

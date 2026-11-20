@@ -215,12 +215,39 @@ function seekAll(time) {
 function synthParts() {
   return Object.values(tracks)
     .filter((t) => t.synthOn && t.notes)
-    .map((t) => ({ notes: t.notes, volume: t.volume, isDrum: t.isDrum }));
+    .map((t) => ({
+      notes: t.notes, volume: t.volume, isDrum: t.isDrum,
+      getDrumSample: t.drumSamples && ((pitch) => t.drumSamples[pitch]),
+    }));
 }
 
 function restartSynthIfPlaying() {
   synth.stop();
   if (anyPlaying() && synthParts().length) synth.start(songTime, anyPlaying, synthParts);
+}
+
+// The 3 GM pitches app/drum_transcription.py's heuristic can ever produce
+// (kick/snare/closed-hat) — fetched once per drum stem, decoded, and kept
+// as real AudioBuffers so Synth can play this stem's own recorded hits
+// instead of always synthesizing an approximation. Fire-and-forget: the
+// roll is usable immediately, and drumVoice() falls back to the synth
+// voice for any pitch whose fetch hasn't landed yet (or 404s, when this
+// stem genuinely has no hit of that type).
+const DRUM_SAMPLE_PITCHES = [36, 38, 42];
+
+async function loadDrumSamples(uploadId, t) {
+  t.drumSamples = {};
+  await Promise.all(DRUM_SAMPLE_PITCHES.map(async (pitch) => {
+    try {
+      const res = await fetch(`/api/uploads/${uploadId}/drum-sample/${pitch}`);
+      if (!res.ok) return;
+      const arrayBuffer = await res.arrayBuffer();
+      t.drumSamples[pitch] = await engine.ensureContext().decodeAudioData(arrayBuffer);
+    } catch (err) {
+      // Network hiccup or an undecodable clip — previews/playback just
+      // keep using the synthesized voice for this one pitch.
+    }
+  }));
 }
 
 // Shared by the merged Play/Pause button and the spacebar shortcut, so a
@@ -380,7 +407,9 @@ function renderDone(upload) {
       synthBtn = document.createElement('button');
       synthBtn.textContent = 'Synth';
       synthBtn.className = 'toggle-btn synth-btn';
-      synthBtn.title = 'Also play the transcribed notes through a simple synth, to compare against the real audio';
+      synthBtn.title = isDrum
+        ? 'Also play the transcribed notes — kick/snare/closed-hat play back this stem\'s own real hits; anything else falls back to a synthesized hit'
+        : 'Also play the transcribed notes through a simple synth, to compare against the real audio';
       const link = document.createElement('a');
       link.href = midi.url;
       link.textContent = 'MIDI ↓';
@@ -399,7 +428,7 @@ function renderDone(upload) {
     wavesurfer.setVolume(0);
     const t = tracks[stemName] = {
       wavesurfer, muted: false, soloed: false, volume: 1, notes: null, lastSaved: null, dirty: false,
-      synthOn: false, isDrum, roll: null, timeEl, trackEl: track, rollGrid: null,
+      synthOn: false, isDrum, roll: null, timeEl, trackEl: track, rollGrid: null, drumSamples: null,
     };
     const engineLoad = engine.loadStem(stemName, url);
     engineLoads.push(engineLoad);
@@ -435,6 +464,7 @@ function renderDone(upload) {
       const roll = createPianoRoll(rollContainer, {
         getDuration: () => engine.duration,
         isDrum,
+        getDrumSample: isDrum ? (pitch) => t.drumSamples && t.drumSamples[pitch] : undefined,
         onChange: (notes) => {
           t.notes = notes;       // live, so Synth hears edits immediately — no server round trip needed
           t.dirty = true;
@@ -501,6 +531,7 @@ function renderDone(upload) {
         updateCaption();
         updateZoomButtons();
       });
+      if (isDrum) loadDrumSamples(upload.id, t); // fire-and-forget; synth falls back until these land
 
       synthBtn.onclick = () => {
         t.synthOn = !t.synthOn;

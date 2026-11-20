@@ -5,10 +5,11 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import BackgroundTasks, Body, FastAPI, HTTPException, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import FileResponse, HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from . import config, db
+from .drum_transcription import CLOSED_HAT, KICK, SNARE, extract_sample_clip
 from .separation import separate_upload
 from .transcription import GM_PROGRAM, METHOD_BY_STEM, notes_json, save_notes, transcribe_stems
 from .youtube import download_video, ensure_ytdlp_updated, extract_audio, fetch_metadata, probe_media
@@ -329,6 +330,32 @@ def get_stem(upload_id: int, stem_name: str):
     if row is None:
         raise HTTPException(404, "No such stem")
     return FileResponse(config.STEMS_DIR / row["file_path"], media_type="audio/wav")
+
+
+DRUM_SAMPLE_PITCHES = {KICK, SNARE, CLOSED_HAT}
+
+
+@app.get("/api/uploads/{upload_id}/drum-sample/{pitch}")
+def get_drum_sample(upload_id: int, pitch: int):
+    """A short real clip of this upload's drum stem's own loudest hit of
+    the given GM pitch, for the piano roll's Synth voice to play back
+    instead of a synthesized approximation — see extract_sample_clip()."""
+    if pitch not in DRUM_SAMPLE_PITCHES:
+        raise HTTPException(404, "No sample for that pitch")
+    midi_row = db.fetch_one(
+        "SELECT file_path FROM midi_tracks WHERE upload_id = %s AND stem_name = 'drums'", (upload_id,)
+    )
+    audio_row = db.fetch_one(
+        "SELECT file_path FROM stems WHERE upload_id = %s AND stem_name = 'drums'", (upload_id,)
+    )
+    if midi_row is None or audio_row is None:
+        raise HTTPException(404, "No drum stem/transcription for this upload")
+    clip = extract_sample_clip(
+        config.MIDI_DIR / midi_row["file_path"], config.STEMS_DIR / audio_row["file_path"], pitch
+    )
+    if clip is None:
+        raise HTTPException(404, "No hits of that drum type were found in this stem")
+    return Response(content=clip, media_type="audio/wav")
 
 
 @app.get("/api/uploads/{upload_id}/original")
