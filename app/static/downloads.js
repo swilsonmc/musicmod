@@ -14,10 +14,17 @@ async function load() {
       (IN_FLIGHT.has(d.status) && d.progress ? ' — ' + escapeHtml(d.progress) : '');
 
     let actionsHtml = '';
+    if (d.status === 'done') {
+      // Both files already sit on disk once a download/extraction finishes
+      // (see _run_download()/_run_extract_only() in main.py) — just never
+      // linked before.
+      actionsHtml += `<a href="/api/downloads/${d.id}/video" download>video</a> `;
+      actionsHtml += `<a href="/api/downloads/${d.id}/audio" download>audio</a> `;
+    }
     if (d.status === 'done' && !d.upload_id) {
-      actionsHtml = `<button data-separate="${d.id}">Separate stems</button>`;
+      actionsHtml += `<button data-separate="${d.id}">Separate stems</button>`;
     } else if (d.upload_id) {
-      actionsHtml = `<a href="/?upload=${d.upload_id}">view separation</a>`;
+      actionsHtml += `<a href="/?upload=${d.upload_id}">view separation</a>`;
     }
     if (!IN_FLIGHT.has(d.status)) {
       actionsHtml += ` <button class="danger" data-delete="${d.id}">Delete</button>`;
@@ -29,7 +36,7 @@ async function load() {
       <td class="status-${d.status}">${statusText}</td>
       <td>${formatBytes(d.file_size_bytes)}</td>
       <td>${formatTime(d.created_at)}</td>
-      <td class="actions">${actionsHtml}</td>
+      <td class="actions"><div class="actions-inner">${actionsHtml}</div></td>
     `;
     tbody.appendChild(tr);
   }

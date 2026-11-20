@@ -2,6 +2,25 @@ const uploadsList = document.getElementById('uploads');
 const playerDiv = document.getElementById('player');
 const form = document.getElementById('upload-form');
 const fileInput = document.getElementById('file-input');
+const uploadsHeading = document.getElementById('uploads-heading');
+const playerHeading = document.getElementById('player-heading');
+
+uploadsHeading.onclick = () => {
+  uploadsList.classList.toggle('collapsed');
+  uploadsHeading.classList.toggle('collapsed');
+};
+
+// Called once something is actually about to be shown in the player area
+// (a selected upload, or a video's extraction status) — reveals the
+// "Player" heading (hidden until then, since an empty section with nothing
+// selected doesn't need a heading) and tucks the uploads list away so it
+// doesn't compete for space with what the user just chose to look at.
+// Still just a click away via the "Uploads" heading above.
+function showPlayer() {
+  playerHeading.style.display = '';
+  uploadsList.classList.add('collapsed');
+  uploadsHeading.classList.add('collapsed');
+}
 
 let tracks = {}; // stem_name -> { wavesurfer, muted, soloed, volume, notes, lastSaved, dirty, synthOn, isDrum, roll, timeEl }
 let pollTimer = null;
@@ -9,6 +28,7 @@ let tickTimer = null;
 let transcribeTimer = null;
 let masterTickTimer = null;
 let lastEditedRoll = null; // target of Ctrl+Z, whichever roll was most recently edited
+let currentlyShownId = null; // last upload id we auto-collapsed the list for (see selectUpload)
 
 const METHOD_LABEL = {
   basic_pitch: 'Basic Pitch (polyphonic)',
@@ -71,6 +91,14 @@ async function selectUpload(id) {
   const uploads = await refreshList(id);
   const upload = uploads.find((u) => u.id === id);
   if (!upload) return;
+  // Only auto-collapse on an actual new selection, not on this same
+  // function's own 3s self-poll while an upload is still processing —
+  // otherwise a manual reopen to glance at the list mid-processing would
+  // get fought shut again within a few seconds.
+  if (id !== currentlyShownId) {
+    currentlyShownId = id;
+    showPlayer();
+  }
 
   if (upload.status === 'pending' || upload.status === 'processing') {
     teardownPlayer();
@@ -276,7 +304,9 @@ function renderDone(upload) {
   summary.innerHTML = metaRow(upload, `
     <dt>Finished</dt><dd>${formatTime(upload.finished_at)}</dd>
     <dt>Took</dt><dd>${formatDuration(durationMs)}</dd>
-    <dt>Original file</dt><dd><a href="${upload.original_url}" download>Download</a></dd>
+    <dt>Original file</dt><dd><a href="${upload.original_url}" download>Download</a>${
+      upload.video_url ? ` · <a href="${upload.video_url}" download>Download original video</a>` : ''
+    }</dd>
   `);
   const transcribeBox = document.createElement('div');
   transcribeBox.className = 'transcribe-box';
@@ -603,6 +633,7 @@ async function handleFileUpload(file) {
 function watchVideoExtraction(downloadId, filename) {
   stopTimers();
   teardownPlayer();
+  showPlayer();
   playerDiv.innerHTML = `
     <div class="status-box" id="video-extract-box">
       <p><strong>${escapeHtml(filename)}</strong> is a video — extracting its audio first.</p>

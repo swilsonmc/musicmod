@@ -72,6 +72,14 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
   grid.append(corner, rulerWrap, keysWrap, viewport);
   container.appendChild(grid);
 
+  // A thin drag strip right below the roll, not inside it — inside would
+  // mean it's part of the scrollable content and could scroll out of
+  // reach instead of staying put as a handle.
+  const resizeHandle = document.createElement('div');
+  resizeHandle.className = 'roll-resize-handle';
+  resizeHandle.title = 'Drag to resize this piano roll';
+  container.appendChild(resizeHandle);
+
   let notes = [];
   let selected = new Set(); // note references (not indices — stable across sort/splice)
   let history = [];
@@ -127,6 +135,32 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
     centerOnPlayhead();
     restoreVerticalCenter(vFrac);
   }
+
+  // The minimum IS the roll's original height (matching .roll's CSS
+  // default) — so dragging down as far as it goes always lands exactly
+  // back at the starting size, instead of the user having to hunt for
+  // "the right" small number. (viewport.clientHeight can't be read here
+  // yet — this roll isn't attached to the document at construction time —
+  // so this has to match the CSS value directly, not detect it live.)
+  const MIN_ROLL_HEIGHT = 80;
+  resizeHandle.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startHeight = viewport.clientHeight;
+    resizeHandle.classList.add('dragging');
+    const onMove = (e2) => {
+      const next = Math.max(MIN_ROLL_HEIGHT, startHeight + (e2.clientY - startY));
+      viewport.style.height = `${next}px`;
+      applyZoom(); // re-measures the new height as the zoom=1 baseline and redraws
+    };
+    const onUp = () => {
+      resizeHandle.classList.remove('dragging');
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
 
   function layout() {
     const [lo, hi] = pitchRange(notes);
@@ -216,29 +250,50 @@ function createPianoRoll(container, { getDuration, isDrum, onChange }) {
     const ctx = keysCanvas.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.font = '9px system-ui, sans-serif';
-    ctx.textBaseline = 'middle';
+
+    // Black-key shading + octave gridlines, independent of which rows get a
+    // text label — these are a structural reference and stay regardless of
+    // zoom or what's occupied.
     for (let p = lo; p <= hi; p++) {
       const pitchClass = ((p % 12) + 12) % 12;
-      const isC = pitchClass === 0;
       const y0 = (hi - p) * rowH;
       if (BLACK_KEY_PITCH_CLASSES.has(pitchClass)) {
         ctx.fillStyle = 'rgba(0, 0, 0, 0.035)';
         ctx.fillRect(0, y0, w, rowH);
       }
-      // Only label rows that have room to show text without overlapping —
-      // always C (the octave anchor), every semitone once rows are tall enough.
-      if (isC || rowH >= 13) {
-        ctx.fillStyle = isC ? '#333' : '#999';
-        ctx.fillText(noteName(p), 3, y0 + rowH / 2);
-      }
-      if (isC) {
+      if (pitchClass === 0) {
         ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
         ctx.beginPath();
         ctx.moveTo(0, y0 + rowH - 0.5);
         ctx.lineTo(w, y0 + rowH - 0.5);
         ctx.stroke();
       }
+    }
+
+    // Labels: any pitch that actually has a note gets one, always, in bold —
+    // that's the whole point (a C printed just because it's an octave
+    // anchor used to be the only thing visible even when the real notes
+    // sat on D/F# rows next to it). Everything else only labels once
+    // zoomed in enough for rows to have room, in plain weight. Rows packed
+    // closer together than a label's own line height stagger sideways
+    // instead of stacking illegibly, using the width this column now has
+    // (same as the Save/Revert/zoom buttons) instead of the old fixed 42px.
+    ctx.textBaseline = 'middle';
+    const occupied = new Set(notes.map((n) => n[0]));
+    const LABEL_LINE_HEIGHT = 10;
+    const STAGGER_STEP = 20;
+    const maxStagger = Math.max(0, Math.floor((w - 24) / STAGGER_STEP));
+    let lastLabelY = -Infinity;
+    let stagger = 0;
+    for (let p = hi; p >= lo; p--) {
+      const isOccupied = occupied.has(p);
+      if (!isOccupied && rowH < 13) continue;
+      const yCenter = (hi - p) * rowH + rowH / 2;
+      stagger = yCenter - lastLabelY < LABEL_LINE_HEIGHT ? Math.min(stagger + 1, maxStagger) : 0;
+      lastLabelY = yCenter;
+      ctx.font = isOccupied ? 'bold 9px system-ui, sans-serif' : '9px system-ui, sans-serif';
+      ctx.fillStyle = isOccupied ? '#1a1a2e' : '#999';
+      ctx.fillText(noteName(p), 3 + stagger * STAGGER_STEP, yCenter);
     }
   }
 

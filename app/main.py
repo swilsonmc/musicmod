@@ -253,6 +253,13 @@ def get_upload(upload_id: int):
             # Stems no transcriber handles yet (drums), so the UI can say so instead of looking broken.
             upload["untranscribable"] = [s for s in upload["stems"] if s not in METHOD_BY_STEM]
             upload["original_url"] = f"/api/uploads/{upload_id}/original"
+            # Only uploads that came from a video (a YouTube download or a
+            # dropped video file, both via the `downloads` table — see
+            # start_download_separation()/_enqueue_video_extraction()) have
+            # one of these; most uploads are straight audio, so this stays None.
+            cur.execute("SELECT id FROM downloads WHERE upload_id = %s", (upload_id,))
+            source_download = cur.fetchone()
+            upload["video_url"] = f"/api/downloads/{source_download['id']}/video" if source_download else None
             return upload
     finally:
         conn.close()
@@ -466,6 +473,30 @@ def get_download(download_id: int):
     if row is None:
         raise HTTPException(404, "No such download")
     return row
+
+
+@app.get("/api/downloads/{download_id}/video")
+def get_download_video(download_id: int):
+    row = db.fetch_one("SELECT stored_dir FROM downloads WHERE id = %s", (download_id,))
+    if row is None:
+        raise HTTPException(404, "No such download")
+    # yt-dlp/_enqueue_video_extraction() both write exactly one "video.<ext>" —
+    # same glob pattern download_video() itself uses to find what it just wrote.
+    matches = sorted((config.DOWNLOADS_DIR / row["stored_dir"]).glob("video.*"))
+    if not matches:
+        raise HTTPException(404, "Video file is missing")
+    return FileResponse(matches[0], filename=matches[0].name)
+
+
+@app.get("/api/downloads/{download_id}/audio")
+def get_download_audio(download_id: int):
+    row = db.fetch_one("SELECT stored_dir FROM downloads WHERE id = %s", (download_id,))
+    if row is None:
+        raise HTTPException(404, "No such download")
+    audio_path = config.DOWNLOADS_DIR / row["stored_dir"] / "audio.wav"
+    if not audio_path.exists():
+        raise HTTPException(404, "Audio file is missing")
+    return FileResponse(audio_path, filename="audio.wav", media_type="audio/wav")
 
 
 @app.delete("/api/downloads/{download_id}")

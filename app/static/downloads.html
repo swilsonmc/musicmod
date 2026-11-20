@@ -14,7 +14,12 @@
   #download-form { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; }
   #download-form input { flex: 1; padding: 0.4rem; }
   button.danger { color: #b00020; }
-  td.actions { display: flex; gap: 0.5rem; }
+  /* display:flex directly on a <td> (rather than an inner wrapper) made an
+     empty actions cell (nothing to show while a download is still in
+     flight) box itself differently from its row's other cells, throwing
+     off where its border-bottom landed relative to the rest of that row's
+     divider line. */
+  .actions-inner { display: flex; gap: 0.5rem; align-items: center; }
 </style>
 </head>
 <body>
