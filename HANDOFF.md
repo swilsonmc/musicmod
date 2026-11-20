@@ -1598,3 +1598,122 @@ averages.
 - For a true live-recording test, Freesound originals (needs the owner's
   free account) or the Spheres orchestral set (2.8 GB stereo subset, no
   registration).
+
+## Cloud session: UI round 3 — alignment, accordion, resizable/better-labeled roll (2026-11-20)
+
+Player/Downloads UI work, prompted by the owner's own screenshots catching
+two real regressions from the previous round plus six new requests. Each
+verified against the real frontend JS via a stub-server Playwright
+harness (no DB/model weights in this container, so this is as close to
+real as this session can get) — details in individual commit messages,
+not repeated here.
+
+- **The piano-roll playhead still wasn't aligned** after the previous
+  round's fix, because that fix solved the wrong problem (made the roll's
+  *own* ruler/waveform agree with each other, flush-left) instead of what
+  was actually asked: the key-label column should be the same width as
+  the Save/Revert/zoom button column and sit under it. Fixed by measuring
+  that column's real rendered width (same technique `alignMasterBar()`
+  already used) and pulling the whole roll-grid left by that amount.
+  Tripped over a genuine 1px bug doing this: `.roll-grid`'s own `border`
+  sits outside the grid's content box, so column 1 started 1px off from
+  where JS had measured — fixed by dropping that border (the inner ruler/
+  keys/viewport cells already carry their own).
+- Downloads page: an empty Actions `<td>` with `display:flex` set directly
+  on it (not an inner wrapper) boxed differently from its row's siblings
+  and threw off the border-bottom divider — exactly the "grey bar doesn't
+  stay aligned" the owner flagged. Moved flex to an inner `<div>`.
+- Downloads page, player page: "video"/"audio" download links added
+  (`_run_download()`/`_run_extract_only()` already keep both files on
+  disk; just never linked before). Player page also gets a reverse lookup
+  (`downloads.upload_id`) to link back to the source video when an upload
+  came from one.
+- Player page: "Player" heading hidden until something's selected;
+  Uploads list is now a collapse-on-select accordion, reopenable by
+  click — guarded so a manual reopen survives the upload's own 3s
+  self-poll while still processing, instead of being fought shut again a
+  few seconds later.
+- Piano roll: a drag handle below the roll resizes it vertically, floor-
+  clamped to its original height (so "restore the original size" is just
+  "drag to the floor," not hunting for a magic number).
+- Piano roll key labels: previously only the octave-anchor C rows ever
+  labeled unless already zoomed in past a threshold — so a drum stem with
+  real hits on D2/F#2 (next to an unrelated C2) showed only "C2". Now any
+  pitch with an actual note always gets a bold label regardless of zoom;
+  everything else stays zoom-gated and plain. Rows closer together than a
+  label's own line height stagger sideways instead of stacking
+  illegibly, using the (now much wider, button-column-matched) key
+  column's own width.
+
+### Where "split other further" actually stands, for the owner's question
+
+Not new research this round — summarizing what's already measured
+elsewhere in this file, since the question came up again:
+
+- **BS-RoFormer-SW (2026-10-31, 2026-11-01 entries above) is a real,
+  measured improvement over today's production model** (`htdemucs.yaml`,
+  set in `app/config.py`) — piano crossed from silent (SDR 0.01) to
+  genuinely usable (4.18, up to 22.88 on a clean two-instrument mix), and
+  it beat `htdemucs_6s` on 17 of 18 scored guitar/piano/other comparisons.
+  **It is not yet wired into the live app** — only tested in the
+  stem-shootout harness. Swapping `INSTRUMENTAL_MODEL` to `bs_roformer_sw`
+  in `app/config.py` is the single highest-leverage next step for this
+  thread: it's a proven win, needs no training, no GPU, no new dataset —
+  just integration work (the shootout's `EXTERNAL_MODELS` plumbing in
+  `separate.py` already knows how to run it; `app/separation.py` would
+  need the same). Trade-off: ~76 min wall-clock vs. ~8 for `htdemucs.yaml`
+  on this CPU, a real cost for the "upload and wait" experience.
+- **Guitar is still broken even on BS-RoFormer-SW** — but the 2026-11-01
+  finding reframes *why*: it's not "guitar as an instrument class" that
+  fails, it's **quiet parts relative to the mix** (0.80 correlation
+  between a stem's relative level and its separation quality). That's a
+  different, and arguably more tractable, problem than "train a better
+  guitar model" — the next-steps list above already names two cheap ideas
+  (cascade re-separation on "other", or let the user boost a quiet
+  region's gain before separating) that haven't been tried yet.
+- **Banquet/query-based separation (arbitrary instrument classes, not a
+  fixed list) is still the real answer to "guitars, horns, etc.," and is
+  still untried** — CPU-feasible per source inspection (see the
+  2026-10-06 hardware-question entry) but a real integration task (no
+  clean packaging), not attempted this round either.
+
+Bottom line to relay: the "do today's app's separations actually improve"
+question has a concrete, cheap, already-proven answer (swap the
+instrumental model) that just hasn't been done yet; "split into named
+instrument classes" is still the open research thread.
+
+### Discussed, not built: resynthesizing a drawn note in the stem's own timbre
+
+The owner asked how feasible it'd be for a hand-drawn piano-roll note to
+sound like the actual separated instrument (the drum's own tone, the
+singer's own voice) instead of the generic synth. Assessed, not
+attempted — two tiers of real difference:
+
+- **Drums: genuinely easy, no ML needed.** `drum_transcription.py`
+  already locates real onsets per GM drum class in the separated audio.
+  A drawn note could just trigger a short clip *lifted from one of those
+  real onsets* (crop ~100-200ms starting at a detected kick/snare/hat hit
+  already in this stem) instead of the synth's noise-burst voice. Minimal
+  new work: reuses detection already built, no pitch-shifting needed
+  (drum "pitch" in the GM map is which drum, not a tone).
+- **Vocals/bass/other (sustained, pitched): harder, but a real non-ML
+  path exists.** The transcribed notes already give timestamped, labeled
+  examples of this stem's own timbre at known pitches. A drawn note could
+  crop the *nearest already-transcribed note* from the same stem and
+  pitch-shift/time-stretch it to the drawn pitch/duration — classic
+  sampler/PSOLA resynthesis (not a trained model), feasible on CPU with
+  existing DSP libraries (`librosa`/`rubberband`). Quality degrades with
+  distance from the source pitch and fails on vibrato/sustained vowel
+  changes, but it's a legitimate, buildable "phase 4" feature, not a
+  research project.
+- **What would NOT be reasonable short-term**: true neural timbre
+  transfer/voice cloning (a model that learns "this singer's voice" and
+  can generate *any* pitch/duration naturally, e.g. DDSP- or
+  singing-voice-synthesis-style). That needs real training per
+  singer/instrument, GPU time, and no off-the-shelf model fits an
+  arbitrary separated vocal track — the same GPU-for-training-only
+  distinction as the "split other further" thread above, not recommended
+  as a first step.
+
+Not scheduled; flagging as scoped (not hand-waved) for whenever it's
+wanted.
