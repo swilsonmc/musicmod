@@ -6,7 +6,10 @@ Description=musicmod stem separation web app (http://127.0.0.1:8000)
 [Service]
 WorkingDirectory=/var/www/musicmod
 # separate.py shells out to the bare `audio-separator` command, so the venv's bin/ must lead PATH.
-Environment=PATH=/var/www/musicmod/venv/bin:/usr/local/bin:/usr/bin:/bin
+# bsr_venv is a second, separate venv (own PyTorch build, own deps) just for
+# `bs-roformer-infer` — see CLAUDE.md/HANDOFF.md for why it's kept apart
+# from musicmod/venv instead of installed into it directly.
+Environment=PATH=/var/www/musicmod/venv/bin:/var/www/projects/musicmod/tools/bsr_venv/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/var/www/musicmod/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 StandardOutput=append:/var/www/projects/musicmod/storage/logs/server.log
 StandardError=inherit

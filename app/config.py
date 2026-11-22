@@ -36,3 +36,10 @@ VOCAL_MODEL = "melband_roformer_instvox_duality_v2.ckpt"
 # the shootout harness uses — and runs far slower (~76 min vs ~8 min on this
 # machine's CPU per the same HANDOFF.md measurement).
 INSTRUMENTAL_MODEL = "bs_roformer_sw"
+
+# bs-roformer-infer's own --device flag. "cpu" is the only value this
+# project has actually measured (the ~76 min HANDOFF.md timing above).
+# Flip to "cuda" only after a CUDA-enabled PyTorch is installed in bsr_venv
+# AND `torch.cuda.is_available()` is confirmed true there — not before, or
+# the whole separation job fails outright instead of just running slow.
+BS_ROFORMER_DEVICE = "cpu"

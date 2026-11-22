@@ -113,7 +113,7 @@ def run_external_model_with_progress(
         cmd = [
             "bs-roformer-infer", "--model", _separate.EXTERNAL_MODELS[model],
             "--input_folder", str(tmp_path), "--store_dir", str(model_dir),
-            "--device", "cpu", "--output_format", "wav_float32",
+            "--device", config.BS_ROFORMER_DEVICE, "--output_format", "wav_float32",
         ]
         # Its stdout is block-buffered when piped, so PYTHONUNBUFFERED is the
         # difference between live progress and everything arriving at once
