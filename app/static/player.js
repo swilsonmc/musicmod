@@ -112,7 +112,18 @@ async function selectUpload(id) {
       <div class="status-box">
         ${metaRow(upload, `<dt>Failed</dt><dd>${formatTime(upload.finished_at)}</dd>`)}
         <p class="status-error">${escapeHtml(upload.error)}</p>
+        <button id="retry-btn">Retry</button>
+        <span class="caption hint">Picks up from the last finished step, so work already done isn't redone.</span>
       </div>`;
+    document.getElementById('retry-btn').onclick = async (e) => {
+      e.target.disabled = true;
+      const res = await fetch(`/api/uploads/${id}/retry`, { method: 'POST' });
+      if (!res.ok) {
+        e.target.insertAdjacentHTML('afterend', `<p class="status-error">${escapeHtml((await res.json()).detail)}</p>`);
+        return;
+      }
+      selectUpload(id);
+    };
     return;
   }
 

@@ -12,6 +12,7 @@ live, since the web UI needs to show what's actually happening during a
 run that can take tens of minutes on CPU-only hardware.
 """
 import importlib.util
+import json
 import os
 import re
 import subprocess
@@ -42,12 +43,92 @@ _PROGRESS_RE = re.compile(r"(\d+)%\|.*?\|\s*(\d+)/(\d+)\s*\[([^\]]+)\]")
 _BSR_REMAINING_RE = re.compile(r"Estimated time remaining:\s*([\d.]+)\s*seconds")
 
 
+# Substrings that mean "couldn't reach the internet", as printed by requests/
+# urllib3 (both tools download model weights through them) — matched against
+# the tool's last output lines so a dropped Wi-Fi connection gets a plain
+# explanation instead of a Python traceback in the UI.
+_NETWORK_ERROR_MARKERS = (
+    "NameResolutionError", "Temporary failure in name resolution", "Max retries exceeded",
+    "ConnectionError", "Connection refused", "Connection reset", "Network is unreachable",
+    "Read timed out", "Failed to download",
+)
+
+
+def _failure(model: str, returncode: int, recent_lines) -> RuntimeError:
+    """One user-facing error for a model subprocess that exited non-zero.
+    The raw output already went to the server log line by line, so the UI
+    message can stay short and say what to do next."""
+    if returncode < 0:
+        return RuntimeError(
+            f"Stopped partway through the {model} model — usually because musicmod was "
+            "stopped during the separation. Press Retry to pick up where it left off."
+        )
+    tail = " | ".join(recent_lines)
+    if any(marker in tail for marker in _NETWORK_ERROR_MARKERS):
+        return RuntimeError(
+            f"Couldn't download the {model} AI model — the internet connection seems to have "
+            "dropped. Your song is saved; press Retry once you're back online."
+        )
+    return RuntimeError(f"{model} failed (exit code {returncode}). Last output: {tail}")
+
+
+def _reuse_finished(model_dir: Path) -> dict[str, str] | None:
+    """If an earlier attempt of this same upload already finished this model
+    (manifest.json written and every stem it lists still on disk), return
+    that manifest so a Retry skips the work instead of redoing it — the
+    vocal model alone is ~20 min on this CPU. Otherwise clear out any
+    half-written leftovers, so canonicalize_outputs() only ever sees files
+    from the run about to happen."""
+    manifest_path = model_dir / "manifest.json"
+    if manifest_path.exists():
+        manifest = json.loads(manifest_path.read_text())
+        if manifest and all(Path(f).exists() for f in manifest.values()):
+            return manifest
+    for leftover in model_dir.glob("*"):
+        if leftover.is_file():
+            leftover.unlink()
+    return None
+
+
+def ensure_models_downloaded(on_detail: Callable[[str], None]) -> None:
+    """Fetch any missing model weights BEFORE separation starts, so a
+    network problem fails the job in seconds rather than after the first
+    model has already spent 20+ minutes of CPU. Both tools otherwise
+    download lazily on first use — which is exactly how a fresh laptop with
+    an empty model cache lost a whole run to a Wi-Fi drop (2026-11-22)."""
+    if not (config.MODELS_DIR / config.VOCAL_MODEL).exists():
+        on_detail(f"Downloading the {config.VOCAL_MODEL} model (first run only)…")
+        result = subprocess.run(
+            ["audio-separator", "-m", config.VOCAL_MODEL, "--download_model_only",
+             "--model_file_dir", str(config.MODELS_DIR)],
+            capture_output=True, text=True,
+        )
+        print(result.stdout + result.stderr, flush=True)
+        if result.returncode != 0:
+            raise _failure(config.VOCAL_MODEL, result.returncode, (result.stdout + result.stderr).splitlines()[-8:])
+
+    if config.INSTRUMENTAL_MODEL in _separate.EXTERNAL_MODELS:
+        # bs-roformer-download returns immediately, offline, when the
+        # checkpoint is already cached (~/.cache/bs-roformer-infer/).
+        on_detail(f"Checking the {config.INSTRUMENTAL_MODEL} model is downloaded (667 MB on first run)…")
+        result = subprocess.run(
+            ["bs-roformer-download", "--model", _separate.EXTERNAL_MODELS[config.INSTRUMENTAL_MODEL]],
+            capture_output=True, text=True,
+        )
+        print(result.stdout + result.stderr, flush=True)
+        if result.returncode != 0:
+            raise _failure(config.INSTRUMENTAL_MODEL, result.returncode, (result.stdout + result.stderr).splitlines()[-8:])
+
+
 def run_model_with_progress(
     mixdown: Path, model: str, output_dir: Path, on_progress: Callable[[int, str], None]
 ) -> dict[str, str]:
     """on_progress(pct, detail) — pct is tqdm's own 0-100 reading."""
     model_dir = output_dir / model
     model_dir.mkdir(parents=True, exist_ok=True)
+    finished = _reuse_finished(model_dir)
+    if finished is not None:
+        return finished
 
     cmd = [
         "audio-separator",
@@ -78,13 +159,8 @@ def run_model_with_progress(
             last_sent = now
     process.wait()
 
-    if process.returncode < 0:
-        raise RuntimeError(
-            f"Stopped partway through the {model} model — usually because musicmod was "
-            "stopped during the separation. Upload the song again to retry."
-        )
     if process.returncode != 0:
-        raise RuntimeError(f"{model} failed (exit code {process.returncode}). Last output: " + " | ".join(recent_lines))
+        raise _failure(model, process.returncode, recent_lines)
 
     return _separate.canonicalize_outputs(model_dir)
 
@@ -106,10 +182,26 @@ def run_external_model_with_progress(
     """
     model_dir = output_dir / model
     model_dir.mkdir(parents=True, exist_ok=True)
+    finished = _reuse_finished(model_dir)
+    if finished is not None:
+        return finished
 
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
-        (tmp_path / mixdown.name).symlink_to(mixdown.resolve())
+        if mixdown.suffix.lower() == ".wav":
+            (tmp_path / mixdown.name).symlink_to(mixdown.resolve())
+        else:
+            # bs-roformer-infer only picks up .wav files from its input
+            # folder ("No .wav files found") — unlike audio-separator, which
+            # takes any format ffmpeg reads. Uploads arrive as .ogg/.mp3/etc.
+            on_progress(None, "Converting the upload to WAV for this model…")
+            converted = subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", str(mixdown),
+                 "-ar", "44100", "-ac", "2", str(tmp_path / f"{mixdown.stem}.wav")],
+                capture_output=True, text=True,
+            )
+            if converted.returncode != 0:
+                raise RuntimeError(f"Couldn't convert {mixdown.name} to WAV: {converted.stderr.strip()[-500:]}")
         cmd = [
             "bs-roformer-infer", "--model", _separate.EXTERNAL_MODELS[model],
             "--input_folder", str(tmp_path), "--store_dir", str(model_dir),
@@ -155,13 +247,8 @@ def run_external_model_with_progress(
                     last_sent = now
         process.wait()
 
-    if process.returncode < 0:
-        raise RuntimeError(
-            f"Stopped partway through the {model} model — usually because musicmod was "
-            "stopped during the separation. Upload the song again to retry."
-        )
     if process.returncode != 0:
-        raise RuntimeError(f"{model} failed (exit code {process.returncode}). Last output: " + " | ".join(recent_lines))
+        raise _failure(model, process.returncode, recent_lines)
 
     _separate.label_bs_roformer_outputs(model_dir, model)
     return _separate.canonicalize_outputs(model_dir)
@@ -183,6 +270,8 @@ def separate_upload(
 
     on_progress(stage, total_stages, pct, detail) — pct is None while a
     model is still loading (before tqdm has anything to report)."""
+    ensure_models_downloaded(lambda detail: on_progress(1, TOTAL_PIPELINE_STAGES, None, detail))
+
     on_progress(1, TOTAL_PIPELINE_STAGES, None, f"Loading vocal model ({config.VOCAL_MODEL})…")
     vocal_manifest = run_model_with_progress(
         input_path, config.VOCAL_MODEL, output_dir,

@@ -43,7 +43,7 @@ def on_startup() -> None:
     db.execute(
         "UPDATE uploads SET status = 'error', progress = NULL, finished_at = %s, error = %s "
         "WHERE status IN ('pending', 'processing')",
-        (now, "Interrupted — the server was stopped before this finished. Upload it again to retry."),
+        (now, "Interrupted — the server was stopped before this finished. Press Retry to pick up where it left off."),
     )
     db.execute(
         "UPDATE uploads SET transcribe_status = 'error', transcribe_progress = NULL, "
@@ -264,6 +264,25 @@ def get_upload(upload_id: int):
             return upload
     finally:
         conn.close()
+
+
+@app.post("/api/uploads/{upload_id}/retry")
+def retry_separation(upload_id: int, background_tasks: BackgroundTasks):
+    """Re-queues a failed separation for the same uploaded file. Any model
+    that already finished on the earlier attempt is reused rather than rerun
+    (separation.py's _reuse_finished), so a failure in the second model
+    doesn't throw away the ~20 min the first one took."""
+    row = db.fetch_one("SELECT status, stored_dir FROM uploads WHERE id = %s", (upload_id,))
+    if not row:
+        raise HTTPException(404, "No such upload")
+    if row["status"] != "error":
+        raise HTTPException(409, "Only a failed separation can be retried")
+    if not any((config.UPLOADS_DIR / row["stored_dir"]).glob("*")):
+        raise HTTPException(409, "The original audio file is missing — upload the song again instead")
+    db.execute("DELETE FROM stems WHERE upload_id = %s", (upload_id,))
+    _set(upload_id, status="pending", error=None, finished_at=None, progress="Queued")
+    background_tasks.add_task(_run_separation, upload_id, row["stored_dir"])
+    return {"id": upload_id, "status": "pending"}
 
 
 @app.post("/api/uploads/{upload_id}/transcribe")
